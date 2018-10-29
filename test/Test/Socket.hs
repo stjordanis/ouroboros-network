@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeOperators     #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Test.Socket (tests) where
 
@@ -7,11 +10,11 @@ import           Protocol
 import           Socket (demo2)
 import           Serialise (prop_serialise)
 
-import Test.Chain (TestBlockChainAndUpdates(..), genBlockChain)
+import           Test.Chain (TestBlockChainAndUpdates(..), genBlockChain)
 
-import Test.QuickCheck
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.QuickCheck (testProperty)
+import           Test.QuickCheck
+import           Test.Tasty (TestTree, testGroup)
+import           Test.Tasty.QuickCheck (testProperty)
 
 --
 -- The list of all tests

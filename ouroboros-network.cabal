@@ -85,6 +85,7 @@ library
                        cborg        >=0.2.1 && <0.3,
                        process,
                        network,
+                       binary,
 
                        QuickCheck   >=2.12 && <2.13
 
@@ -141,5 +142,6 @@ test-suite tests
                        process,
                        transformers,
                        void,
-                       network
+                       network,
+                       binary
   ghc-options:         -Wall
