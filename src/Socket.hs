@@ -21,6 +21,7 @@ import           Serialise
 
 import qualified Codec.CBOR.Read as CBOR
 import qualified Codec.CBOR.Write as CBOR
+import           Data.Bits
 import qualified Data.Binary.Get as Get
 import qualified Data.Binary.Put as Put
 import qualified Data.ByteString as BS
@@ -31,23 +32,27 @@ import           Text.Printf
 
 import           Network.Socket hiding (recv, recvFrom, send, sendTo)
 import           Network.Socket.ByteString
+import           System.Clock
 
 data Conversation
     = ChainHeaderSync
     | PingPong
     deriving (Eq, Ord, Show)
 
-encodeProtocolHeader :: Conversation -> Int -> BL.ByteString
-encodeProtocolHeader conv len = Put.runPut enc
+
+encodeProtocolHeader :: Conversation -> Int -> DeltaQueueTimestamp -> BL.ByteString
+encodeProtocolHeader conv len ts = Put.runPut enc
   where
     enc = do
         putConversation conv
         Put.putWord32be (fromIntegral len)
+        Put.putWord32be (dqtSec ts)
+        Put.putWord32be (dqtFrac ts)
 
     putConversation ChainHeaderSync = Put.putWord16be 1
     putConversation PingPong        = Put.putWord16be 2
 
-decodeProtocolHeader :: BL.ByteString -> Maybe (Conversation, Word32)
+decodeProtocolHeader :: BL.ByteString -> Maybe (Conversation, Word32, DeltaQueueTimestamp)
 decodeProtocolHeader buf =
     case Get.runGetOrFail dec buf of
          Left  (_, _, _)  -> Nothing
@@ -57,7 +62,9 @@ decodeProtocolHeader buf =
     dec = do
         convid <- Get.getWord16be
         len <- Get.getWord32be
-        return (decodeConveration convid, len)
+        sec <- Get.getWord32be
+        frac <- Get.getWord32be
+        return (decodeConveration convid, len, DeltaQueueTimestamp sec frac)
 
     decodeConveration 1 = ChainHeaderSync
     decodeConveration 2 = PingPong
@@ -318,7 +325,8 @@ socketWriter :: STM (Conversation, BS.ByteString)
 socketWriter rqueue sd =
     forever $ do
         (conv, blob) <- atomically rqueue
-        let header = encodeProtocolHeader conv $ BS.length blob
+        ts <- getTimestamp
+        let header = encodeProtocolHeader conv (BS.length blob) ts
         -- printf "writing header %s %d\n" (show conv) (BS.length blob)
         sendAll sd $ BL.toStrict header
         -- printf "writing blob\n"
@@ -329,14 +337,16 @@ socketReader :: M.Map Conversation (TBQueue BS.ByteString)
              -> IO ()
 socketReader wqueueMap sd =
     forever $ do
-        header <- recvLen' 6 []
+        header <- recvLen' 14 []
         case decodeProtocolHeader (BL.fromStrict header) of
              Nothing -> error "failed to decode header"
-             Just (convId, len) ->
+             Just (convId, len, ts) ->
                  case M.lookup convId wqueueMap of
                       Nothing     -> error $ "unknown conversation " ++ show convId -- XXX
                       Just wqueue -> do
                           blob <- recvLen' (fromIntegral len) []
+                          delay <- timestampOffset ts
+                          --printf "delay: %d\n" delay
                           isFull <- atomically $ isFullTBQueue wqueue
                           if isFull
                              then error "wqueue is full"
@@ -350,25 +360,46 @@ socketReader wqueueMap sd =
           then error "socket closed" -- XXX throw exception
           else recvLen' (l - fromIntegral (BS.length buf)) (buf : bufs)
 
-pongSideProtocol1
-  :: forall m.
-     Monad m
-  => (Word64 -> m ()) -- ^ send
-  -> m Word64       -- ^ recv
-  -> m ()
-pongSideProtocol1 s r =
-    forever $ do
-        ts <- r
-        s $ 234 - ts
 
-pingSideProtocol1
-  :: forall m.
-     Monad m
-  => (Word64 -> m ()) -- ^ send
-  -> m Word64       -- ^ recv
-  -> m ()
-pingSideProtocol1 s r =
-    forever $ do
-        s 123
-        _ <- r
-        return ()
+--
+-- XXX Belongs somewhere else
+
+
+data DeltaQueueTimestamp = DeltaQueueTimestamp {
+    dqtSec  :: !Word32
+  , dqtFrac :: !Word32
+  } deriving Show
+
+ntpOffset :: Num a => a
+ntpOffset = 2208988800
+
+nanoS :: Num a => a
+nanoS = 10^9
+
+getTimestamp :: IO DeltaQueueTimestamp
+getTimestamp = do
+  ts <- getTime Realtime
+  return $ timeSpecToDeltaQueueTimestamp ts
+
+timeSpecToDeltaQueueTimestamp :: TimeSpec -> DeltaQueueTimestamp
+timeSpecToDeltaQueueTimestamp ts =
+  let s = fromIntegral $ sec ts + ntpOffset
+      f = fromIntegral $ shiftR (nsec ts * nanoS) 32 in
+  DeltaQueueTimestamp s f
+
+deltaQueueTimestampStampToTimeSpec :: DeltaQueueTimestamp -> TimeSpec
+deltaQueueTimestampStampToTimeSpec ts =
+  let s = (fromIntegral $ dqtSec ts) - ntpOffset
+      f = ((shiftL (fromIntegral $ dqtFrac ts) 32) `div` nanoS) in
+  TimeSpec s f
+
+timestampOffset :: DeltaQueueTimestamp -> IO Int
+timestampOffset ts = do
+    let tsX = deltaQueueTimestampStampToTimeSpec ts
+
+    tsN <- getTime Realtime
+    let diffX = diffTimeSpec tsX tsN
+    --printf "diff %s now %s tsX %s\n" (show diffX) (show ts) (show tsX)
+    return $ fromIntegral $ toNanoSecs $ diffX
+
+
