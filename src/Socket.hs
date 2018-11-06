@@ -5,6 +5,7 @@
 module Socket where
 
 import           Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
+import           Control.Concurrent.Async
 import           Control.Concurrent.STM
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -26,6 +27,7 @@ import qualified Data.Binary.Get as Get
 import qualified Data.Binary.Put as Put
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import           Data.ByteString.Char8 (pack)
 import qualified Data.Map.Strict as M
 import           Data.Word
 import           Text.Printf
@@ -35,10 +37,11 @@ import           Network.Socket.ByteString
 import           System.Clock
 
 data Conversation
-    = ChainHeaderSync
-    | PingPong
+    = ChainHeaderSyncProducer
+    | ChainHeaderSyncConsumer
+    | Pinger
+    | Ponger
     deriving (Eq, Ord, Show)
-
 
 encodeProtocolHeader :: Conversation -> Int -> DeltaQueueTimestamp -> BL.ByteString
 encodeProtocolHeader conv len ts = Put.runPut enc
@@ -49,8 +52,10 @@ encodeProtocolHeader conv len ts = Put.runPut enc
         Put.putWord32be (dqtSec ts)
         Put.putWord32be (dqtFrac ts)
 
-    putConversation ChainHeaderSync = Put.putWord16be 1
-    putConversation PingPong        = Put.putWord16be 2
+    putConversation ChainHeaderSyncProducer = Put.putWord16be 1
+    putConversation ChainHeaderSyncConsumer = Put.putWord16be 2
+    putConversation Pinger                  = Put.putWord16be 3
+    putConversation Ponger                  = Put.putWord16be 4
 
 decodeProtocolHeader :: BL.ByteString -> Maybe (Conversation, Word32, DeltaQueueTimestamp)
 decodeProtocolHeader buf =
@@ -66,15 +71,15 @@ decodeProtocolHeader buf =
         frac <- Get.getWord32be
         return (decodeConveration convid, len, DeltaQueueTimestamp sec frac)
 
-    decodeConveration 1 = ChainHeaderSync
-    decodeConveration 2 = PingPong
+    decodeConveration 1 = ChainHeaderSyncProducer
+    decodeConveration 2 = ChainHeaderSyncConsumer
+    decodeConveration 3 = Pinger
+    decodeConveration 4 = Ponger
     decodeConveration a = error $ "unknow conversation " ++ show a -- XXX
 
 data ProtocolAction s r a
   = Send s (IO (ProtocolAction s r a))
   | Recv (r -> IO (ProtocolAction s r a))
-  | Ping s (IO (ProtocolAction s r a))
-  | Pong (r -> IO (ProtocolAction s r a))
   | Fail ProtocolFailure
 
 data ProtocolFailure = ProtocolStopped
@@ -187,7 +192,7 @@ demo2 chain0 updates = do
 
     -- Apply updates to the producer's chain and let them sync
     _ <- forkIO $ sequence_
-           [ do threadDelay 10 -- just to provide interest
+           [ do threadDelay 10000 -- just to provide interest
                 atomically $ do
                   p <- readTVar producerVar
                   let Just p' = ChainProducer.applyChainUpdate update p
@@ -201,8 +206,13 @@ demo2 chain0 updates = do
                 check (Chain.headPoint expectedChain == Chain.headPoint chain')
                 return chain'
 
-    mapM_ killThread ptids
-    mapM_ killThread ctids
+    --threadDelay 1500
+    {-sendAll prodSock $ pack "error"
+    sendAll consSock $ pack "error"
+    sendAll consSock' $ pack "error"-}
+
+    mapM_ cancel ptids
+    mapM_ cancel ctids
     close prodSock
     close consSock
     close consSock'
@@ -228,12 +238,12 @@ instance Serialise MsgPing where
 
 
 producer :: forall block. (Chain.HasHeader block, Serialise block)
-         => Socket -> TVar (ChainProducerState block) -> IO [ThreadId]
+         => Socket -> TVar (ChainProducerState block) -> IO [Async ()]
 producer sd producerVar = do
     (wtid, wqueue) <- startupWriter sd
-    (chain_tid, chain_q) <- startupConversation wqueue ChainHeaderSync producerSideProtocol
-    (pong_tid, pong_q) <- startupConversation wqueue PingPong pong
-    reader_tid <- startupReader sd $ M.fromList [(ChainHeaderSync, chain_q), (PingPong, pong_q)]
+    (chain_tid, chain_q) <- startupConversation wqueue ChainHeaderSyncProducer producerSideProtocol
+    (pong_tid, pong_q) <- startupConversation wqueue Ponger pong
+    reader_tid <- startupReader sd $ M.fromList [(ChainHeaderSyncConsumer, chain_q), (Pinger, pong_q)]
     return [wtid, chain_tid, pong_tid, reader_tid]
 
   where
@@ -253,12 +263,12 @@ producer sd producerVar = do
       liftProducerHandlers liftIO (exampleProducer producerVar)
 
 consumer :: forall block. (Chain.HasHeader block, Serialise block)
-         => Socket -> TVar (Chain block ) -> IO [ThreadId]
+         => Socket -> TVar (Chain block ) -> IO [Async ()]
 consumer sd chainVar = do
     (wtid, wqueue) <- startupWriter sd
-    (chain_tid, chain_q) <- startupConversation wqueue ChainHeaderSync consumerSideProtocol
-    (ping_tid, ping_q) <- startupConversation wqueue PingPong ping
-    reader_tid <- startupReader sd $ M.fromList [(ChainHeaderSync, chain_q), (PingPong, ping_q)]
+    (chain_tid, chain_q) <- startupConversation wqueue ChainHeaderSyncConsumer consumerSideProtocol
+    (ping_tid, ping_q) <- startupConversation wqueue Pinger ping
+    reader_tid <- startupReader sd $ M.fromList [(ChainHeaderSyncProducer, chain_q), (Ponger, ping_q)]
     return [wtid, chain_tid, ping_tid, reader_tid]
 
   where
@@ -325,28 +335,28 @@ runProtocolWithTBQueues wqueue rqueue p =
       stToIO (k (if BS.null chunk then Nothing else Just chunk))
         >>= decodeFromHandle mempty
 
-startupWriter :: Socket -> IO (ThreadId, TBQueue (Conversation, BS.ByteString))
+startupWriter :: Socket -> IO (Async (), TBQueue (Conversation, BS.ByteString))
 startupWriter sd = do
     queue <- atomically $ newTBQueue 64
-    tid <- forkIO (socketWriter (readTBQueue queue) sd)
+    tid <- async (socketWriter (readTBQueue queue) sd)
     return (tid, queue)
 
 startupConversation :: forall smsg rmsg.  (Serialise smsg, Serialise rmsg)
                      => TBQueue (Conversation, BS.ByteString)
                      -> Conversation
                      -> Protocol smsg rmsg ()
-                     -> IO (ThreadId, TBQueue BS.ByteString)
+                     -> IO (Async (), TBQueue BS.ByteString)
 startupConversation wqueue conv p = do
     queue <- atomically $ newTBQueue 64 -- XXX Should depend on protocol definition
     let rqueue = readTBQueue queue
     let wqueue' a = writeTBQueue wqueue (conv, a)
-    tid <- forkIO $ runProtocolWithTBQueues wqueue' rqueue p
+    tid <- async $ runProtocolWithTBQueues wqueue' rqueue p
     return (tid, queue)
 
 startupReader :: Socket
               -> M.Map Conversation (TBQueue BS.ByteString)
-              -> IO ThreadId
-startupReader sd m = forkIO $ socketReader m sd
+              -> IO (Async ())
+startupReader sd m = async $ socketReader m sd
 
 socketWriter :: STM (Conversation, BS.ByteString)
              -> Socket
