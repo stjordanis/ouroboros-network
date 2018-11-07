@@ -7,6 +7,7 @@ module Socket where
 import           Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM
+import           Control.Concurrent.QSem
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.ST (RealWorld, stToIO)
@@ -240,10 +241,13 @@ instance Serialise MsgPing where
 producer :: forall block. (Chain.HasHeader block, Serialise block)
          => Socket -> TVar (ChainProducerState block) -> IO [Async ()]
 producer sd producerVar = do
-    (wtid, wqueue) <- startupWriter sd
-    (chain_tid, chain_q) <- startupConversation wqueue ChainHeaderSyncProducer producerSideProtocol
-    (pong_tid, pong_q) <- startupConversation wqueue Ponger pong
-    reader_tid <- startupReader sd $ M.fromList [(ChainHeaderSyncConsumer, chain_q), (Pinger, pong_q)]
+    sem <- newQSem 0
+    (chain_tid, chain_wq, chain_rq) <- startupConversation sem ChainHeaderSyncProducer
+                                       producerSideProtocol
+    (pong_tid, pong_wq, pong_rq) <- startupConversation sem Ponger pong
+    reader_tid <- startupReader sd $ M.fromList [ (ChainHeaderSyncConsumer, chain_rq)
+                                                , (Pinger, pong_rq)]
+    wtid <- startupWriter sd sem [(ChainHeaderSyncProducer, chain_wq), (Ponger, pong_wq)]
     return [wtid, chain_tid, pong_tid, reader_tid]
 
   where
@@ -265,10 +269,14 @@ producer sd producerVar = do
 consumer :: forall block. (Chain.HasHeader block, Serialise block)
          => Socket -> TVar (Chain block ) -> IO [Async ()]
 consumer sd chainVar = do
-    (wtid, wqueue) <- startupWriter sd
-    (chain_tid, chain_q) <- startupConversation wqueue ChainHeaderSyncConsumer consumerSideProtocol
-    (ping_tid, ping_q) <- startupConversation wqueue Pinger ping
-    reader_tid <- startupReader sd $ M.fromList [(ChainHeaderSyncProducer, chain_q), (Ponger, ping_q)]
+    sem <- newQSem 0
+    (chain_tid, chain_wq, chain_rq) <- startupConversation sem ChainHeaderSyncConsumer
+                                       consumerSideProtocol
+    (ping_tid, ping_wq, ping_rq) <- startupConversation sem Pinger ping
+    reader_tid <- startupReader sd $ M.fromList [ (ChainHeaderSyncProducer, chain_rq)
+                                                , (Ponger, ping_rq)]
+    wtid <- startupWriter sd sem [(ChainHeaderSyncConsumer, chain_wq), (Pinger, ping_wq)]
+
     return [wtid, chain_tid, ping_tid, reader_tid]
 
   where
@@ -295,16 +303,18 @@ consumer sd chainVar = do
 
 
 runProtocolWithTBQueues :: forall smsg rmsg.  (Serialise smsg, Serialise rmsg)
-                        => (BS.ByteString -> STM ())
+                        => QSem
+                        -> (BS.ByteString -> STM ())
                         -> STM BS.ByteString
                         -> Protocol smsg rmsg ()
                         -> IO ()
-runProtocolWithTBQueues wqueue rqueue p =
+runProtocolWithTBQueues sem wqueue rqueue p =
     unProtocol p >>= go mempty
   where
     go trailing (Send msg k) = do
       let body = BL.toStrict $ CBOR.toLazyByteString (encode msg)
       atomically $ wqueue body
+      signalQSem sem
       k >>= go trailing
 
     go trailing (Recv k) = do
@@ -335,41 +345,73 @@ runProtocolWithTBQueues wqueue rqueue p =
       stToIO (k (if BS.null chunk then Nothing else Just chunk))
         >>= decodeFromHandle mempty
 
-startupWriter :: Socket -> IO (Async (), TBQueue (Conversation, BS.ByteString))
-startupWriter sd = do
-    queue <- atomically $ newTBQueue 64
-    tid <- async (socketWriter (readTBQueue queue) sd)
-    return (tid, queue)
+startupWriter :: Socket
+              -> QSem
+              -> [(Conversation, TBQueue BS.ByteString)]
+              -> IO (Async ())
+startupWriter sd sem queues = async (socketWriter sem queues sd)
 
 startupConversation :: forall smsg rmsg.  (Serialise smsg, Serialise rmsg)
-                     => TBQueue (Conversation, BS.ByteString)
+                     => QSem
                      -> Conversation
                      -> Protocol smsg rmsg ()
-                     -> IO (Async (), TBQueue BS.ByteString)
-startupConversation wqueue conv p = do
+                     -> IO (Async (), TBQueue BS.ByteString, TBQueue BS.ByteString)
+startupConversation sem conv p = do
     queue <- atomically $ newTBQueue 64 -- XXX Should depend on protocol definition
+    wqueue <- atomically $ newTBQueue 64 -- XXX
     let rqueue = readTBQueue queue
-    let wqueue' a = writeTBQueue wqueue (conv, a)
-    tid <- async $ runProtocolWithTBQueues wqueue' rqueue p
-    return (tid, queue)
+    let wqueue' a = writeTBQueue wqueue a
+    tid <- async $ runProtocolWithTBQueues sem wqueue' rqueue p
+    return (tid, wqueue, queue)
 
 startupReader :: Socket
               -> M.Map Conversation (TBQueue BS.ByteString)
               -> IO (Async ())
 startupReader sd m = async $ socketReader m sd
 
-socketWriter :: STM (Conversation, BS.ByteString)
-             -> Socket
-             -> IO ()
-socketWriter rqueue sd =
-    forever $ do
-        (conv, blob) <- atomically rqueue
+socketWriter :: QSem
+              -> [(Conversation, TBQueue BS.ByteString)]
+              -> Socket
+              -> IO ()
+socketWriter sem qs sd = do
+    let queues = map (\(conv, q) -> (conv, BS.empty, q)) qs
+    loop queues
+  where
+    loop :: [(Conversation, BS.ByteString, TBQueue BS.ByteString)] -> IO ()
+    loop queues = do
+        queues' <- mapM checkQueue queues
+        loop queues'
+
+    {-
+     - Service all queues in a round-robin manner, if a message exceeds
+     - 16k it will be split up into several messages and messages from
+     - other conversations may be sent in between those messages.
+     - Messages belonging to the same conversation will always be delivered
+     - in order.
+     -}
+    checkQueue :: (Conversation, BS.ByteString, TBQueue BS.ByteString) ->
+                  IO (Conversation, BS.ByteString, TBQueue BS.ByteString)
+    checkQueue (conv, e, q) | BS.empty == e = do
+        waitQSem sem
+        blob_m <- atomically $ tryReadTBQueue q
+        case blob_m of
+             Nothing   -> do
+                 signalQSem sem
+                 return (conv, BS.empty, q)
+             Just blob -> do
+                 --printf "ready to send blob with %d bytes of data" $ BS.length blob
+                 sendBlob (conv, blob, q)
+    checkQueue (conv, b, q) = do
+        --printf "continuing to send %d worth of data\n" $ BS.length b
+        sendBlob (conv, b, q)
+
+    sendBlob (conv, blob, q) = do
+        let (b0, b1) = BS.splitAt 16384 blob
         ts <- getTimestamp
-        let header = encodeProtocolHeader conv (BS.length blob) ts
-        -- printf "writing header %s %d\n" (show conv) (BS.length blob)
-        sendAll sd $ BL.toStrict header
-        -- printf "writing blob\n"
-        sendAll sd blob
+        let header = encodeProtocolHeader conv (BS.length b0) ts
+        --printf "writing header and blob %s %d\n" (show conv) (BS.length b0)
+        sendAll sd $ BL.toStrict $ BL.append header $ BL.fromStrict b0
+        return (conv, b1, q)
 
 socketReader :: M.Map Conversation (TBQueue BS.ByteString)
              -> Socket
