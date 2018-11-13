@@ -49,7 +49,7 @@ encodeProtocolHeader conv len ts = Put.runPut enc
   where
     enc = do
         putConversation conv
-        Put.putWord32be (fromIntegral len)
+        Put.putWord16be (fromIntegral len)
         Put.putWord32be (dqtSec ts)
         Put.putWord32be (dqtFrac ts)
 
@@ -58,7 +58,7 @@ encodeProtocolHeader conv len ts = Put.runPut enc
     putConversation Pinger                  = Put.putWord16be 3
     putConversation Ponger                  = Put.putWord16be 4
 
-decodeProtocolHeader :: BL.ByteString -> Maybe (Conversation, Word32, DeltaQueueTimestamp)
+decodeProtocolHeader :: BL.ByteString -> Maybe (Conversation, Word16, DeltaQueueTimestamp)
 decodeProtocolHeader buf =
     case Get.runGetOrFail dec buf of
          Left  (_, _, _)  -> Nothing
@@ -67,7 +67,7 @@ decodeProtocolHeader buf =
   where
     dec = do
         convid <- Get.getWord16be
-        len <- Get.getWord32be
+        len <- Get.getWord16be
         sec <- Get.getWord32be
         frac <- Get.getWord32be
         return (decodeConveration convid, len, DeltaQueueTimestamp sec frac)
@@ -418,7 +418,7 @@ socketReader :: M.Map Conversation (TBQueue BS.ByteString)
              -> IO ()
 socketReader wqueueMap sd =
     forever $ do
-        header <- recvLen' 14 []
+        header <- recvLen' 12 []
         case decodeProtocolHeader (BL.fromStrict header) of
              Nothing -> error "failed to decode header"
              Just (convId, len, ts) ->
