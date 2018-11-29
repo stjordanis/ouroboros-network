@@ -127,6 +127,7 @@ library
                        clock        >=0.7 && <0.8,
                        containers   >=0.6 && <0.7,
                        cryptonite   >=0.25 && <0.26,
+                       dequeue      >=0.1.12 && <0.2,
                        fingertree   >=0.1 && <0.2,
                        free         >=5.1 && <5.2,
                        hashable     >=1.2 && <1.3,
