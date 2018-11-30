@@ -418,6 +418,64 @@ puttingItAllTogether fetchPolicyParams alreadyDownloaded peersStatus
   . filterLongerCandidateChains (headBlockNo currentChain)
 
 
+
+data FetchedBlockHeap m block = FetchedBlockHeap {
+       getFetchedBlockLookup :: m (Point block -> Maybe block),
+       addFetchedBlock       :: block -> m ()
+     }
+
+mkTestFetchedBlockHeap :: (MonadSTM m, HasHeader block)
+                       => m (FetchedBlockHeap m block)
+mkTestFetchedBlockHeap = do
+    bhvar <- atomically (newTVar Map.empty)
+    return FetchedBlockHeap {
+      getFetchedBlockLookup = flip Map.lookup <$> atomically (readTVar bhvar),
+      addFetchedBlock       = \b -> atomically $
+                              modifyTVar' bhvar $ Map.insert (blockPoint b) b
+    }
+
+{-
+fetchLogicThread :: FetchPolicyParams
+                 -> FetchedBlockHeap m block
+                 -> [TVar (Chain header)]
+                 -> TVar (Chain block)
+                 -> m ()
+fetchLogicThread =
+  where
+    go :: Map peer (FetchTrackingState header time)
+       ->
+    go = do
+      -- collect all info, waiting for changes if needed
+
+      -- trigger re-eval on:
+      --   chain getting longer
+      --   candidate chains changing, adding, removing
+      --   soft timeouts
+      atomically $ do
+        currentChain <- readTVar currentChainVar
+        let currentBlockNo = headBlockNo currentChain
+        return currentBlockNo
+
+      -- Q: if we don't fetch full ranges, then perhaps we do need to trigger
+      -- on block download completion since we may need to trigger fetching
+      -- the remainder
+
+      -- collect some extra info, no blocking, no trigger if these change
+      -- current downloaded blocks
+      -- peer GSVs
+
+      lookup <- getFetchedBlockLookup
+      let alreadyDownloaded = isJust . lookup
+      
+      -- make a decision
+
+      puttingItAllTogether
+        fetchPolicyParams
+        alreadyDownloaded
+        peerFetchStatus
+        currentBlockNo
+-}
+
 {-- 
 
 -- | Given a set of chains, and which peer they are from, select an order of
@@ -818,19 +876,25 @@ blockArrivalShedule outboundGSV inboundGSV
 
     cumulativeSumFrom n = tail . scanl (+) n
 
-{-
-newFetchRequestBatch now fetchRange fetchBlocks =
+newFetchRequestBatch :: TimeMeasure time
+                     => time
+                     -> GSV time
+                     -> GSV time
+                     -> FetchTrackingState header time
+                     -> ChainRange header
+                     -> [BlockInfo header]
+                     -> FetchRequestBatch header time
+newFetchRequestBatch now outboundGSV inboundGSV fetchTrackingState fetchRange fetchBlocks =
     FetchRequestBatch
       fetchRange
       (addTime leadingEdge now)
-      [ (block, addTime duration now)
+      [ (block, addTime trailingEdge now)
       | (block, trailingEdge) <- zip fetchBlocks blockTrailingEdges ]
   where
     (leadingEdge, blockTrailingEdges) =
       blockArrivalShedule outboundGSV inboundGSV
                           fetchTrackingState
                           fetchBlocks
--}
 
 {-
 updateForNewRequest :: DeltaQ
