@@ -55,10 +55,10 @@ data Status k where
 --   forall st . Complement (Complement st) = st
 --
 -- See 'stepping'.
-type family Complement (status :: st -> Status st) :: st -> Status st where
-  Complement Awaiting = Yielding
-  Complement Yielding = Awaiting
-  Complement Finished = Finished
+type family Complement (status :: Status st) :: Status st where
+  Complement (Awaiting st) = Yielding st
+  Complement (Yielding st) = Awaiting st
+  Complement (Finished st) = Finished st
 
 -- | Description of control flow: either hold onto it or release it.
 data Control where
@@ -195,8 +195,8 @@ feedbackLoop k r = k r `andThen` feedbackLoop k
 -- 'Peer' term continuation.
 connect
   :: ( Monad m )
-  => Peer p tr (st begin)            endA m a
-  -> Peer p tr (Complement st begin) endB m b
+  => Peer p tr begin              endA m a
+  -> Peer p tr (Complement begin) endB m b
   -> m (Those a b)
 connect peerA (PeerLift m) = m >>= connect peerA
 connect (PeerLift m) peerB = m >>= flip connect peerB

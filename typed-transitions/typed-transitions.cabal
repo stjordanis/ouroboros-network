@@ -23,6 +23,7 @@ library
                      , Protocol.Driver
                      , Protocol.Path
                      , Protocol.Transition
+                     , Protocol.Monoidal
                      , Protocol.PingPong.Type
                      , Protocol.PingPong.Client
                      , Protocol.PingPong.Codec
@@ -41,6 +42,7 @@ library
                      , BangPatterns
                      , StandaloneDeriving
   build-depends:       base
+                     , io-sim-classes
                      , QuickCheck
 
   hs-source-dirs:      src

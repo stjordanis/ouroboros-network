@@ -39,7 +39,7 @@ let
   ))));
 
   typed-transitions = docNoSeprateOutput(doHaddock(doTest(doBench(
-    cleanSource (callCabal2nix "typed-transitions" ./typed-transitions {})
+    cleanSource (callCabal2nix "typed-transitions" ./typed-transitions { inherit io-sim-classes; })
   ))));
 
   ouroboros-network = docNoSeprateOutput(doHaddock(doTest(doBench(
