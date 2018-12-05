@@ -59,6 +59,7 @@ library
                        Ouroboros.Network.Chain
                        Ouroboros.Network.ChainProducerState
                        Ouroboros.Network.ConsumersAndProducers
+                       Ouroboros.Network.FetchLogic
                        Ouroboros.Network.MonadClass
                        Ouroboros.Network.MonadClass.MonadConc
                        Ouroboros.Network.MonadClass.MonadFork
