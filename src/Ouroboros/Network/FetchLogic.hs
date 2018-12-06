@@ -25,6 +25,10 @@ import           Ouroboros.Network.Block
 import           Ouroboros.Network.Chain as Chain
 import           Ouroboros.Network.MonadClass
 
+import           Ouroboros.Network.Protocol.BlockFetch.Server
+import           Ouroboros.Network.Protocol.BlockFetch.Client
+import           Ouroboros.Network.Protocol.BlockFetch.Type (ChainRange(..))
+
 import           Ouroboros.Network.Testing.ConcreteBlock
 --import           Test.QuickCheck
 --import           Test.Chain
@@ -326,8 +330,8 @@ data FetchRequest header peer = FetchRequest !peer !(ChainRange header)
 -- | A range on a chain identified by two points. It is exclusive on the
 -- lower end and inclusive on the upper end.
 --
-data ChainRange header = ChainRange !(Point header) !(Point header)
-  deriving Show
+--data ChainRange header = ChainRange !(Point header) !(Point header)
+--  deriving Show
 
 data FetchDecline header peer =
      FetchDeclineAllDownloaded  peer (Point header)
@@ -989,8 +993,6 @@ blockServer prng0 chain inQ outQ =
       writeTVar prngVar prng'
       return wait
 
-selectRange :: Chain block -> ChainRange block -> Maybe [block]
-selectRange = undefined
 
 
 data Distribution n = Distribution n
@@ -1220,3 +1222,37 @@ updateForBlockArrival :: Point
                       -> FetchTrackingState
 -- 
 -}
+
+demoBlockServer :: forall header block m.
+                   (MonadSTM m, HeaderHash header ~ HeaderHash block)
+                => Chain block
+                -> m (BlockFetchServerReceiver header m (),
+                      BlockFetchServer header block m ())
+demoBlockServer chain = do
+    q <- atomically $ newTBQueue 5
+    return (receiverSide q, senderSide q)
+  where
+    receiverSide :: TBQueue m (ChainRange header)
+                 -> BlockFetchServerReceiver header m ()
+    receiverSide q =
+      BlockFetchServerReceiver {
+        recvMessageRequestRange = \r -> do
+          atomically (writeTBQueue q r)
+          return (receiverSide q),
+        recvMessageDone = ()
+      }
+
+    senderSide :: TBQueue m (ChainRange header)
+               -> BlockFetchServer header block m ()
+    senderSide q = BlockFetchServer $ do
+      ChainRange lpoint upoint <- atomically $ readTBQueue q
+      case selectRange chain (ChainRange (castPoint lpoint) (castPoint upoint)) of
+        Nothing     -> return $ SendMessageNoBlocks (senderSide q)
+        Just blocks -> return $ SendMessageStartBatch (sendBlocks q blocks)
+
+    sendBlocks q []     = return $ SendMessageBatchDone (senderSide q)
+    sendBlocks q (b:bs) = return $ SendMessageBlock b (sendBlocks q bs)
+
+selectRange :: Chain block -> ChainRange block -> Maybe [block]
+selectRange = undefined
+
