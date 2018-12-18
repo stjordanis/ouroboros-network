@@ -6,6 +6,7 @@ import qualified Test.Chain (tests)
 import qualified Test.ChainProducerState (tests)
 import qualified Test.Pipe (tests)
 import qualified Test.Sim (tests)
+import qualified Test.Socket (tests)
 import qualified Test.Ouroboros.Network.Node (tests)
 import qualified Test.Ouroboros.Network.Protocol.Stream (tests)
 
@@ -19,6 +20,7 @@ tests =
   , Test.ChainProducerState.tests
   , Test.Sim.tests
   , Test.Pipe.tests
+  , Test.Socket.tests
   , Test.Ouroboros.Network.Node.tests
   , Test.Ouroboros.Network.Protocol.Stream.tests
   ]
