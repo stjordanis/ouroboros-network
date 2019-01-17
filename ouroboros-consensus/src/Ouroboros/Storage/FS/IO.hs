@@ -184,6 +184,8 @@ instance HasFS IOFSE where
                        F.write hnd (castPtr ptr) (fromIntegral len)
               go (bytesWritten + fromIntegral n + fromIntegral bytesCount) buf write'
 
+    removeFile path = withAbsPath path $ Dir.removeFile
+
     -- Can't use withAbsPath here, negative occurrence of IO
     withFile path ioMode action = do
         fp <- asks (makeAbsolute path)

@@ -66,6 +66,7 @@ library
 
                        -- Storing things on disk
                        Ouroboros.Storage.Immutable.DB
+                       Ouroboros.Storage.Volatile.DB
                        Ouroboros.Storage.FS.Class
                        Ouroboros.Storage.FS.Sim
                        Ouroboros.Storage.FS.IO
@@ -236,7 +237,9 @@ test-suite test-storage
                     ouroboros-network,
                     ouroboros-consensus,
 
+                    binary,
                     bytestring,
+                    cereal,
                     containers,
                     directory,
                     exceptions,

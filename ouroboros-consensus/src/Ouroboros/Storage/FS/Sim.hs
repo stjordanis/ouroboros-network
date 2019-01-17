@@ -175,6 +175,7 @@ instance (MonadMask m, MonadSTM m) => HasFS (SimFSE m) where
     hPut       = mockPut
     hPutBuffer = mockPutBuffer
     hTruncate  = mockTruncate
+    removeFile = mockRemoveFile
     withFile   = mockWithFile
 
     createDirectory          = mockCreateDirectory
@@ -346,6 +347,11 @@ mockTruncate (MockHandle fp _ _) sz = modifyMockFS $ \fs ->
         return ((fs { getMockFS =
             replaceFileContent fp (BS.take (fromEnum sz) block) (getMockFS fs)
           }), ())
+
+mockRemoveFile :: MonadSTM m
+               => FsPath
+               -> SimFSE m ()
+mockRemoveFile _ = undefined
 
 mockWithFile :: (MonadMask m, MonadSTM m)
              => FsPath

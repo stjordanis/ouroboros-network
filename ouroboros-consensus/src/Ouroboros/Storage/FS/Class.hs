@@ -123,6 +123,7 @@ class Monad m => HasFS m where
     hPut       :: HasCallStack => FsHandle m -> Builder -> m Word64
     hPutBuffer :: HasCallStack => FsHandle m -> Buffer m -> Builder -> m Word64
     hTruncate  :: HasCallStack => FsHandle m -> Word64 -> m ()
+    removeFile :: HasCallStack => FsPath     -> m ()
     withFile   :: HasCallStack => FsPath     -> IOMode -> (FsHandle m -> m r) -> m r
 
     -- Operations of directories
