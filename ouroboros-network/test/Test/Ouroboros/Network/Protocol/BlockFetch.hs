@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -13,6 +14,7 @@ import           Data.Functor (($>))
 import           Data.Functor.Identity (Identity (..))
 
 import           Protocol.Core (Those (..), connect)
+import           Protocol.Monoidal
 
 import Control.Monad.Class.MonadFork (MonadFork (..))
 import Control.Monad.Class.MonadProbe (MonadProbe (..))
@@ -64,6 +66,8 @@ tests =
     , testProperty "direct: round trip in IO" prop_directRoundTripIO
     , testProperty "connect: round trip in ST" prop_connectRoundTripST
     , testProperty "connect: round trip in IO" prop_connectRoundTripIO
+    , testProperty "connectBoth: round trip in ST" prop_connectBothRoundTripST
+    , testProperty "connectBoth: round trip in IO" prop_connectBothRoundTripIO
     ]
   ]
 
@@ -343,3 +347,55 @@ prop_connectRoundTripIO ranges queueSize = ioProperty $ runExperiment $
       (blockFetchReceiverStream cli))
     ranges
     queueSize
+
+roundTrip_experiment2
+  :: forall m.
+     ( MonadSTM m
+     , MonadTimer m
+     , MonadProbe m
+     )
+  => [(Int, Int)] -- ^ ranges to send
+  -> Positive Int -- ^ size of queue connecting both servers
+  -> Probe m Property
+  -> m ()
+roundTrip_experiment2 ranges (Positive queueSize) probe = do
+  (serverReceiver, serverSender) <- connectThroughQueue (fromIntegral queueSize) blockStream
+  let clientSender :: BlockRequestSender (Maybe (Int, Int)) m ()
+      clientSender = blockRequestSenderFromProducer
+        (Pipes.each (map Just ranges ++ [Nothing]) >> return ())
+
+      blockRequestReceiverPeer = blockRequestReceiverStream serverReceiver
+      blockRequestSenderPeer = blockRequestSenderStream clientSender
+
+      blockFetchServerPeer = blockFetchServerStream serverSender
+      blockFetchReceiverPeer = blockFetchReceiverStream blockFetchClientReceiver
+
+      clientPeerTuple = PeerTuple blockRequestSenderPeer blockFetchReceiverPeer
+      serverPeerTuple = PeerTuple blockRequestReceiverPeer blockFetchServerPeer
+
+  (_, res) <- connectBoth clientPeerTuple serverPeerTuple
+  let expected :: [Int]
+      expected = concatMap (\(x, y) -> [x..y]) ranges
+  case res of
+    These xs _ -> probeOutput probe (reverse xs === expected)
+    This xs    -> probeOutput probe (reverse xs === expected)
+    _          -> probeOutput probe (property False)
+
+ where
+  blockStream :: Maybe (Int, Int) -> m (Maybe (Pipes.Producer Int m ()))
+  blockStream (Just (x, y)) = return (Just (Pipes.each [x..y] >> return ()))
+  blockStream Nothing       = return Nothing
+
+prop_connectBothRoundTripST
+  :: [(Int, Int)]
+  -> Positive Int
+  -> Property
+prop_connectBothRoundTripST ranges queueSize
+  = runST $ runExperiment $ roundTrip_experiment2 ranges queueSize
+
+prop_connectBothRoundTripIO
+  :: [(Int, Int)]
+  -> Positive Int
+  -> Property
+prop_connectBothRoundTripIO ranges queueSize
+  = ioProperty $ runExperiment $ roundTrip_experiment2 ranges queueSize
