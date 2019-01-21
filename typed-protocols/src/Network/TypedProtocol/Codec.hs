@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE PolyKinds                  #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
@@ -7,7 +8,7 @@
 
 module Network.TypedProtocol.Codec where
 
-import           Network.TypedProtocol.Core (StateToken, Message)
+import           Network.TypedProtocol.Core (CurrentToken, FlipPeer, Message, PeerKind)
 
 import           Control.Monad.ST (ST)
 import           Control.Monad.Class.MonadST
@@ -24,13 +25,14 @@ import qualified Data.ByteString.Builder.Extra as BS
 import qualified Data.ByteString.Lazy.Internal as LBS (smallChunkSize)
 import qualified Data.ByteString.Lazy          as LBS
 
-data Codec ps failure m bytes = Codec {
+data Codec (pk :: PeerKind) ps failure m bytes = Codec {
        encode :: forall (st :: ps) (st' :: ps).
-                 Message st st'
+                 CurrentToken pk st
+              -> Message st st'
               -> bytes,
 
        decode :: forall (st :: ps).
-                 StateToken st
+                 CurrentToken (FlipPeer pk) st
               -> m (DecodeStep bytes failure m (SomeMessage st))
      }
 
@@ -38,10 +40,10 @@ transformCodec
   :: Functor m
   => (bytes  -> bytes')
   -> (bytes' -> bytes)
-  -> Codec ps failure m bytes
-  -> Codec ps failure m bytes'
+  -> Codec pk ps failure m bytes
+  -> Codec pk ps failure m bytes'
 transformCodec to from Codec {encode, decode} = Codec {
-    encode = to . encode,
+    encode = fmap to . encode,
     decode = fmap (transformDecodeStep to from) . decode
   }
 
@@ -90,19 +92,19 @@ serialiseCodec :: (MonadST m, Serialise.Serialise a)
 serialiseCodec = cborCodec Serialise.encode Serialise.decode 
 -}
 
-cborCodec :: forall m ps. MonadST m
+cborCodec :: forall m pk ps. MonadST m
           => (forall (st :: ps) (st' :: ps). Message st st' -> CBOR.Encoding)
-          -> (forall (st :: ps) s. StateToken st -> CBOR.Decoder s (SomeMessage st))
-          -> Codec ps CBOR.DeserialiseFailure m ByteString
+          -> (forall (st :: ps) s. CurrentToken (FlipPeer pk) st -> CBOR.Decoder s (SomeMessage st))
+          -> Codec pk ps CBOR.DeserialiseFailure m ByteString
 cborCodec cborEncode cborDecode =
     Codec {
-      encode = convertCborEncoder cborEncode,
+      encode = convertCborEncoder $ const cborEncode,
       decode = \tok -> convertCborDecoder' (cborDecode tok)
     }
 
-convertCborEncoder :: (a -> CBOR.Encoding) -> a -> ByteString
+convertCborEncoder :: (tok -> a -> CBOR.Encoding) -> tok -> a -> ByteString
 convertCborEncoder cborEncode =
-    CBOR.toStrictByteString
+    fmap CBOR.toStrictByteString
   . cborEncode
 
 {-# NOINLINE toLazyByteString #-}

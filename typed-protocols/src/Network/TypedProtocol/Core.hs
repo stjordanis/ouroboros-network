@@ -1,8 +1,11 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors #-}
 
@@ -50,12 +53,16 @@ module Network.TypedProtocol.Core (
   done,
   yield,
   await,
+  ImpossibleProofs (..),
 
   -- * Internals
   Agency(..),
   CurrentAgency,
+  CurrentToken,
+  FlipPeer,
   ) where
 
+import Data.Void (Void)
 import Data.Kind (Type)
 
 
@@ -151,8 +158,9 @@ class Protocol ps where
   -- interpreters as part of dynamically keeping track of the expected
   -- outstanding responses and their protocol states.
   --
-  data StateToken :: ps -> Type
-
+  data ClientToken :: ps -> Type
+  data ServerToken :: ps -> Type
+  data TerminalToken :: ps -> Type
 
 -- | Having defined the types needed for a protocol it is then possible to
 -- define programs that are peers that engage in that protocol.
@@ -163,21 +171,27 @@ data Peer (pk :: PeerKind) (st :: ps) m a where
          ->    Peer pk st m a
 
   Done   :: (CurrentAgency pk (AgencyInState st) ~ Finished)
-         => a
+         => TerminalToken st
+         -> a
          -> Peer pk st m a
 
   Yield  :: (CurrentAgency pk (AgencyInState st) ~ Yielding)
-         => Message st st'
+         => CurrentToken pk st
+         -> Message st st'
          -> Peer pk st' m a
          -> Peer pk st  m a
 
   Await  :: (CurrentAgency pk (AgencyInState st) ~ Awaiting)
-         => StateToken st
+         => CurrentToken (FlipPeer pk) st
          -> (forall st'. Message st st' -> Peer pk st' m a)
          -> Peer pk st m a
 
 data Agency   = Yielding | Awaiting | Finished -- Only used as promoted types
+
 data PeerKind = AsClient | AsServer        -- Only used as promoted types
+type family FlipPeer (peer :: PeerKind) :: PeerKind where
+  FlipPeer AsClient = AsServer
+  FlipPeer AsServer = AsClient
 
 data WhoHasAgency = ClientHasAgency | ServerHasAgency | NobodyHasAgency
 
@@ -191,22 +205,47 @@ type family CurrentAgency (peer   :: PeerKind)
   CurrentAgency AsServer ServerHasAgency = Yielding
   CurrentAgency AsServer NobodyHasAgency = Finished
 
+type family CurrentToken (pk :: PeerKind) st :: Type where
+  CurrentToken AsClient st = ClientToken st
+  CurrentToken AsServer st = ServerToken st
+
+type Or = Either
+
+type family OtherPeer (peer :: PeerKind) :: PeerKind where
+  OtherPeer AsClient = AsServer
+  OtherPeer AsServer = AsClient
+
 effect :: m (Peer pk st m a)
        ->    Peer pk st m a
 effect = Effect
 
 done :: (CurrentAgency pk (AgencyInState st) ~ Finished)
-     => a -> Peer pk st m a
+     => TerminalToken st
+     -> a
+     -> Peer pk st m a
 done = Done
 
 yield :: (CurrentAgency pk (AgencyInState st) ~ Yielding)
-      => Message st st'
+      => CurrentToken pk st
+      -> Message st st'
       -> Peer pk st' m a
       -> Peer pk st  m a
 yield = Yield
 
 await :: (CurrentAgency pk (AgencyInState st) ~ Awaiting)
-      => StateToken st
+      => CurrentToken (FlipPeer pk) st
       -> (forall st'. Message st st' -> Peer pk st' m a)
       -> Peer pk st m a
 await = Await
+
+-- | Proofs that the `Peer` type cannot deadlock or partially finish the
+-- protocol.  They help to make `connect` a total function.
+--
+data ImpossibleProofs ps = ImpossibleProofs {
+    -- | A proof that both agents are not yielding at the same time.
+    noYieldingDeadlock :: forall (st :: ps). ClientToken st -> ServerToken st -> Void,
+    -- | A proof that both agents are not awaiting at the same time.
+    noAwaitingDeadlock :: forall (st :: ps). ClientToken st -> ServerToken st -> Void,
+    -- | A proof that both agents finished at the same transition.
+    notPartiallyFinished :: forall (x :: ps). TerminalToken x -> (ClientToken x `Or` ServerToken x) -> Void
+  }

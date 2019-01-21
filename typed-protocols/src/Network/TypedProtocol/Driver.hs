@@ -30,16 +30,23 @@
 
 module Network.TypedProtocol.Driver where
 
-import Network.TypedProtocol.Core      as Core
-import Network.TypedProtocol.Pipelined as Pipelined hiding (connect)
-import Network.TypedProtocol.Channel
-import Network.TypedProtocol.Codec     as Codec
+import           Data.Void (absurd)
+
+import           Network.TypedProtocol.Core      as Core
+import           Network.TypedProtocol.Pipelined (PeerSender, PeerReceiver)
+import qualified Network.TypedProtocol.Pipelined as Pipelined
+import           Network.TypedProtocol.Channel
+import           Network.TypedProtocol.Codec (Codec (..), SomeMessage (..))
+import qualified Network.TypedProtocol.Codec     as Codec
 
 import           Control.Monad.Class.MonadSTM
 
 
 -- | The 'connect' function takes two peers that agree on a protocol and runs
--- them in lock step, until (and if) they complete.
+-- them in lock step, until (and if) they complete.  The first argument is
+-- bunch of proofs that certain conditions will never happen: both client and
+-- server are listening or awaiting (which results in a deadlock), nor one side
+-- could finish without the other part to agree on it.
 --
 -- The 'connect' function serves a few purposes.
 --
@@ -52,21 +59,31 @@ import           Control.Monad.Class.MonadSTM
 -- * It is useful for testing peer implementations against each other in a
 -- minimalistic setting. The typed framework guarantees
 --
+-- * Prove that protocol state machine does not have a deadlock and that both
+-- peers finish the protocol at the same moment.
+--
 connect :: Monad m
-        => Peer AsClient st m a
-        -> Peer AsServer st m b
+        => ImpossibleProofs ps
+        -> Peer AsClient (st :: ps) m a
+        -> Peer AsServer (st :: ps) m b
         -> m (a, b)
-connect (Core.Effect a) b  = a >>= \a' -> connect a' b
-connect a  (Core.Effect b) = b >>= \b' -> connect a  b'
-connect (Core.Done a) (Core.Done b) = return (a, b)
-connect (Core.Yield msg a) (Core.Await _ b) = connect a (b msg)
-connect (Core.Await _ a) (Core.Yield msg b) = connect (a msg) b
-connect _ _ = error "Network.TypedProtocol.Driver.connect: impossible happend"
+connect p (Effect a) b  = a >>= \a' -> connect p a' b
+connect p a  (Effect b) = b >>= \b' -> connect p a  b'
+connect _part (Done _ a) (Done _ b) = return (a, b)
+connect p (Yield _ msg a) (Await _ b) = connect p a (b msg)
+connect p (Await _ a) (Yield _ msg b) = connect p (a msg) b
+
+connect ImpossibleProofs{notPartiallyFinished} (Done sd _) (Yield sy _ _) =  absurd (notPartiallyFinished sd (Right sy))
+connect ImpossibleProofs{notPartiallyFinished} (Yield sy _ _) (Done sd _) = absurd $ notPartiallyFinished sd (Left sy)
+connect ImpossibleProofs{notPartiallyFinished} (Done sd _) (Await sa _) = absurd $ notPartiallyFinished sd (Left sa)
+connect ImpossibleProofs{notPartiallyFinished} (Await sa _) (Done sd _) = absurd $ notPartiallyFinished sd (Right sa)
+connect ImpossibleProofs{noYieldingDeadlock} (Yield sy _ _) (Yield sy' _ _) = absurd $ noYieldingDeadlock sy sy'
+connect ImpossibleProofs{noAwaitingDeadlock} (Await sa _) (Await sa' _) = absurd $ noAwaitingDeadlock sa' sa
 
 runPeer
   :: forall ps (st :: ps) pk failure bytes m a .
      Monad m
-  => Codec ps failure m bytes
+  => Codec pk ps failure m bytes
   -> Channel m bytes
   -> Peer pk st m a
   -> m a
@@ -74,11 +91,11 @@ runPeer
 runPeer codec channel (Core.Effect k) =
     k >>= runPeer codec channel
 
-runPeer _codec _channel (Core.Done x) =
+runPeer _codec _channel (Core.Done _ x) =
     return x
 
-runPeer codec@Codec{encode} Channel{send} (Core.Yield msg k) = do
-    channel' <- send (encode msg)
+runPeer codec@Codec{encode} Channel{send} (Core.Yield tok msg k) = do
+    channel' <- send (encode tok msg)
     runPeer codec channel' k
 
 runPeer codec@Codec{decode} channel (Core.Await stok k) = do
@@ -111,7 +128,7 @@ runDecoder Channel{recv} (Codec.Partial k) = do
 runPipelinedPeer
   :: forall ps (st :: ps) pk failure bytes m a.
      MonadSTM m
-  => Codec ps failure m bytes
+  => Codec pk ps failure m bytes
   -> Channel m bytes
   -> Pipelined.PeerSender pk st m a
   -> m a
@@ -136,7 +153,7 @@ runPipelinedPeerSender
   :: forall ps (st :: ps) pk failure bytes m a.
      MonadSTM m
   => TBQueue m (ReceiveHandler pk ps m)
-  -> Codec ps failure m bytes
+  -> Codec pk ps failure m bytes
   -> Channel m bytes
   -> PeerSender pk st m a
   -> m a
@@ -152,14 +169,15 @@ runPipelinedPeerSender queue Codec{encode} = go
 
     go Channel{send} (Pipelined.Yield msg receiver k) = do
       atomically (writeTBQueue queue (ReceiveHandler receiver))
-      channel' <- send (encode msg)
+      -- TODO: the token will come from `Piplined.Yield` constructor
+      channel' <- send (encode undefined msg)
       go channel' k
 
 
 runPipelinedPeerReceiver
   :: forall ps (st :: ps) (st' :: ps) pk failure bytes m.
      Monad m
-  => Codec ps failure m bytes
+  => Codec pk ps failure m bytes
   -> Channel m bytes
   -> PeerReceiver pk (st :: ps) (st' :: ps) m
   -> m (Channel m bytes)

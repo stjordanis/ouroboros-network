@@ -1,9 +1,10 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds    #-}
+{-# LANGUAGE EmptyCase    #-}
+{-# LANGUAGE GADTs        #-}
+{-# LANGUAGE PolyKinds    #-}
+{-# LANGUAGE RankNTypes   #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors #-}
 
@@ -47,13 +48,26 @@ instance Protocol PingPongState where
     MsgPong :: Message StBusy StIdle
     MsgDone :: Message StIdle StDone
 
-  data StateToken st where
-    TokIdle :: StateToken StIdle
-    TokBusy :: StateToken StBusy
-    TokDone :: StateToken StDone
+  data ClientToken st where
+    ClientTokenIdle :: ClientToken StIdle
+
+  data ServerToken st where
+    ServerTokenBusy :: ServerToken StBusy
+
+  data TerminalToken st where
+    TerminalTokenDone :: TerminalToken StDone
 
 
 instance Show (Message (from :: PingPongState) (to :: PingPongState)) where
   show MsgPing = "MsgPing"
   show MsgPong = "MsgPong"
   show MsgDone = "MsgDone"
+
+impossibleProofs :: ImpossibleProofs PingPongState
+impossibleProofs = ImpossibleProofs {
+    noYieldingDeadlock = \ClientTokenIdle server -> case server of {},
+    noAwaitingDeadlock = \ClientTokenIdle server -> case server of {},
+    notPartiallyFinished = \TerminalTokenDone choice -> case choice of
+      Left client  -> case client of {}
+      Right server -> case server of {}
+  }

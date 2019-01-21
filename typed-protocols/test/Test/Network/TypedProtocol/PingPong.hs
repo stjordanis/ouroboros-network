@@ -84,7 +84,11 @@ prop_connect
   -> Property
 prop_connect (Positive x) =
   let c = fromIntegral x
+<<<<<<< HEAD
   in case runIdentity $ connect (pingPongClientPeer $ pingPongClientCount c) (pingPongServerPeer pingPongServerCount) of
+=======
+  in case runIdentity $ connect undefined (pingPongClientPeer $ pingPongClientFixed c) (pingPongServerPeer pingPongServerCount) of
+>>>>>>> d476b72... Make connect a total function
     (_, c') -> c === c'
 
 connect_pipelined_experiment

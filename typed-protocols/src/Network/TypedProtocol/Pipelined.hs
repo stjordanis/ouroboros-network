@@ -44,7 +44,7 @@
 --
 module Network.TypedProtocol.Pipelined where
 
-import           Network.TypedProtocol.Core (Agency (..), CurrentAgency, Protocol (..), PeerKind)
+import           Network.TypedProtocol.Core (Agency (..), CurrentAgency, CurrentToken, FlipPeer, Protocol (..), PeerKind)
 import qualified Network.TypedProtocol.Core as Core
 
 
@@ -100,7 +100,7 @@ data PeerReceiver (pk :: PeerKind) (st :: ps) (st' :: ps) m where
   Completed :: PeerReceiver pk st st m
 
   Await     :: (CurrentAgency pk (AgencyInState st) ~ Awaiting)
-            => StateToken st
+            => CurrentToken (FlipPeer pk) st
             -> (forall st''. Message st st'' -> PeerReceiver pk st'' st' m)
             -> PeerReceiver pk st st' m
 
@@ -111,7 +111,7 @@ effect' = Effect'
 
 await
   :: (CurrentAgency pk (AgencyInState st) ~ Awaiting)
-  => StateToken st
+  => CurrentToken (FlipPeer pk) st
   -> (forall st''. Message st st'' -> PeerReceiver pk st'' st' m)
   -> PeerReceiver pk st st' m
 await = Await
@@ -126,8 +126,8 @@ connect
   -> m (a, b)
 connect (Effect a) b = a >>= \a' -> connect a' b
 connect a (Core.Effect b) = b >>= \b' -> connect a b'
-connect (Done a) (Core.Done b) = return (a, b)
-connect (Yield msg receiver a) (Core.Await _tok b) = connectReceiver receiver (b msg) >>= \b' -> connect a b'
+connect (Done a) (Core.Done _ b) = return (a, b)
+connect (Yield msg receiver a) (Core.Await _ b) = connectReceiver receiver (b msg) >>= \b' -> connect a b'
  where
   connectReceiver
     :: PeerReceiver pk st0 st1 m
@@ -136,6 +136,6 @@ connect (Yield msg receiver a) (Core.Await _tok b) = connectReceiver receiver (b
   connectReceiver (Effect' x) y = x >>= \x' -> connectReceiver x' y
   connectReceiver x (Core.Effect y) = y >>= \y' -> connectReceiver x y'
   connectReceiver Completed y = return y
-  connectReceiver (Await _tok x) (Core.Yield msg_ y) = connectReceiver (x msg_) y
+  connectReceiver (Await _tok x) (Core.Yield _ msg_ y) = connectReceiver (x msg_) y
   connectReceiver _ _ = error "Network.TypedProtocol.connectReceiver: impossible happend"
 connect _ _ = error "Network.TypedProtocol.connect: impossible happend"

@@ -72,17 +72,17 @@ pingPongClientPeer (SendMsgDone result) =
     -- We do an actual transition using 'yield', to go from the 'StIdle' to
     -- 'StDone' state. Once in the 'StDone' state we can actually stop using
     -- 'done', with a return value.
-    yield MsgDone (done result)
+    yield ClientTokenIdle MsgDone (done TerminalTokenDone result)
 
 pingPongClientPeer (SendMsgPing next) =
 
     -- Send our message.
-    yield MsgPing $
+    yield ClientTokenIdle MsgPing $
 
     -- The type of our protocol means that we're now into the 'StBusy' state
     -- and the only thing we can do next is local effects or wait for a reply.
     -- We'll wait for a reply.
-    await TokBusy $ \MsgPong ->
+    await ServerTokenBusy $ \MsgPong ->
 
     -- Now in this case there is only one possible response, and we have
     -- one corresponding continuation 'kPong' to handle that response.
@@ -136,6 +136,6 @@ pingPongClientPeerSender (SendMsgPingPipelined receive next) =
   Pipelined.yield
     MsgPing
     -- response handler
-    (Pipelined.await TokBusy $ \MsgPong -> Pipelined.effect' $ receive $> Pipelined.Completed)
+    (Pipelined.await ServerTokenBusy $ \MsgPong -> Pipelined.effect' $ receive $> Pipelined.Completed)
     -- run the next step of the ping-pong protocol.
     (Pipelined.effect $ return $ pingPongClientPeerSender next)
