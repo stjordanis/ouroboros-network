@@ -61,6 +61,8 @@
 \newcommand{\restrictrange}{\rhd}
 
 \newcommand{\hsref}[1]{} % add reference to the relevant Haskell source (as comment)
+\newcommand{\wip}[1]{\color{magenta}{#1}\color{black}}
+\newcommand{\hide}[1]{}
 
 \DeclareMathOperator{\dom}{dom}
 \DeclareMathOperator{\range}{range}
@@ -117,10 +119,312 @@
 
 \begin{description}
 \item[Version 0.1, Dez 20, 2018  Draft of the table of contents.]
-\item[Version 0.1.1, Jan 08, 2019 Structure and outline]
+\item[Version 0.2, Jan 08, 2019 Structure and outline.]
+\item[Version 0.3, Jan 25, 2019 Start elaborating contents.]
+  Description of state machines; Binary representation.
 \end{description}
 
 \chapter{Overview}
+\section{Requirements}
+\subsection{High level requirements}
+
+These are the high level business requirements for the networking that were
+gathered and signed off in late 2017. As such they are expressed in an informal
+prose style, and often following a ``user story'' style.
+
+\subsubsection{Network connectivity}
+
+\paragraph{Participate as a user who has delegated}
+
+As a Daedalus home user with my stake delegated to other users I would like to
+join the Cardano network so I can participate in the network.
+\begin{itemize}
+\item The system be designed to provide this user segment with the ability
+      to catch up and keep up with the blockchain without having to do any local
+      network configuration.
+\item The system be designed to provide this user segment with the ability to
+      continuously find and maintain a discovery of a sufficient number of
+      other network participants that have reasonable connectivity.
+\item The system be designed to provide this user segment with the ability to
+      find and maintain a minimum of 3 other network participants to maintain
+      connectivity with performance that is sufficient to catch up with the
+      blockchain.
+\item The system design will take into account that this user will probably be
+      behind a firewall.
+\item Users in the segment can be defined by as having all their stake
+      delegated to other network participants.
+\end{itemize}
+
+
+\paragraph{Participate in network as small stakeholder}
+
+As a Deadalus home user operating a core node with a small stake, I would like
+to join the Cardano network so I can participate in the network as a core node
+that produces blocks i.e. have not delegated to someone else.
+
+\begin{itemize}
+\item The system be designed to provide this user segment with the ability to
+      receive the transactions that will be incorporated into blocks (although
+      sizing the operation of the distributed system to ensure that all such
+      participants would be able to receive all transactions is not a bounding
+      constraint).
+\item The system be designed to provide this user segment with the ability to
+      participate in the MPC protocol\footnote{This requirement is now
+      redundant because the MPC protocol is specific to Ouroboros Classic.}.
+\item The system will be designed to provide this user segment with the ability
+      to catch up and keep up with the blockchain without having to do any local
+      network configuration (this is a bounding constraint).
+\item The user will have sufficient connectivity and performance to receive a
+      block within a time slot {\sc and} they have to be able to create and
+      broadcast a block within a time slot in which the block is received by
+      other core nodes.
+\item The system will be designed to maximise the likelihood that 50\% of home
+      users operating a core node are compliant with the previous requirement
+      at any one time.
+\item The system will be designed to provide this user segment with the ability
+      to continuously find and maintain a discovery of a sufficient number of
+      other network participants that have reasonable connectivity.
+\item The system will provide a discovery mechanism that will find and maintain
+      a minimum of 3 other network participants to maintain connectivity with
+      performance that is sufficient to catch up with the blockchain.
+\item The system design will take into account that this user may be behind a
+      firewall (i.e being behind a firewall should not preclude a user
+      participating in this fashion).
+\item The Delegation workstream will provide a UI feature for the user to
+      choose to control their own stake.
+\item Users in this segment will be defined as {\sc not}
+      \begin{itemize}
+      \item[a)] being in the top 100 users ranked by stake or
+      \item[b)] in a ranked set of users who combined control 80\% of the stake
+      \end{itemize}
+\item Users in this segment will not be part of the Core Diff, but still
+      subject to the normal incentives related to creating blocks.
+\end{itemize}
+
+
+\paragraph{Participate in network as a large stakeholder}
+
+As a user running a core node on a server and with large stake in the network,
+I would like to join the Cardano network so I can participate in the network as
+a core server node that produces blocks i.e. have not delegated to someone else.
+
+\begin{itemize}
+\item A large stakeholder will be defined as
+      \begin{itemize}
+      \item[a)] being in the top 100 users ranked by stake; or
+      \item[b)] in a ranked set of users who combined control 80\% of the stake
+      \end{itemize}
+\item Assuming that this user has sufficient connectivity and performance, the
+      system should ensure that the collective operation of the distributed
+      system will ensure that they have a high probability, of receiving a
+      block within a time slot such that they have sufficient time to be able
+      to create and broadcast a block within a time slot where the block is
+      received by other core nodes.
+\item It is expected that the previous requirement will be fulfilled to a high
+      degree of reliability between nodes in this category -- assuming normal
+      network operations
+
+      \begin{tabular}{rl}
+      Threshold & $>95\%$ \\
+      Target    & $>98\%$ \\
+      Stretch   & $>99\%$
+      \end{tabular}
+\item The system will be designed to provide this user segment with the ability
+      to continuously find and maintain a discovery of a sufficient number of
+      other network participants that have reasonable connectivity.
+\item Discovery will find and maintain a minimum of 10 other network
+      participants to maintain connectivity with performance that is sufficient
+      to catch up with the blockchain.
+\item Ability to receive the transactions that will be incorporated into blocks.
+\item Ability to participate in the MPC protocol\footnote{This requirement is
+      now redundant because the MPC protocol is specific to Ouroboros Classic.}.
+\item The user will catch up and keep up with the blockchain.
+\item The server firewall rules will be such that it can communicate with other
+      core nodes on the system (and vice versa) -- The system will provide the
+      necessary information to update firewall rules if the server is operating
+      behind a firewall to ensure the server can communicate with other core
+      nodes.
+\item The threshold which defines the group of large stakeholders may be
+      configurable on the network layer. The configuration may include toggling
+      between the rules a) and b) in the previous requirement and the threshold
+      numbers within these (this is pending a decision from the Incentives
+      workstream.
+\item The rules and threshold configuration may need to be a protocol parameter
+      that is updated by the update system.
+\end{itemize}
+
+
+\paragraph{Poor network connectivity notification}
+
+As a home user, I want to see a network connection status on Daedalus so that
+I know the state of my network connection.
+%
+\begin{itemize}
+\item If the user receives a notification that they are in red or amber mode,
+      Daedalus will give the user some helpful information on how to resolve
+      common connectivity issues.
+\end{itemize}
+%
+There are three (at least) the following three distinct modes that the network can be operating in:
+each one has a red, green, amber status.
+
+%
+\begin{center}
+\begin{tabular}{ll}
+Initial block sync \\
+\hline
+red   & receiving $<1$ blocks per 10s \\
+amber & receiving $<10$ blocks per 10s \\
+green & otherwise  \\[1em]
+
+Recovery \\
+\hline
+red   & receiving $<1$ slot block per 10s \\
+amber & otherwise  \\
+green & (not applicable) \\[1em]
+
+Block chain following \\
+\hline
+red   & it has been more that 200s since a slot indication was received. \\
+amber & it has been more than 60s since a slot indiction was received. \\
+green & otherwise.
+\end{tabular}
+\end{center}
+
+This assumes that the slot time remains 20 seconds.
+
+
+\subsubsection{Distributed System Performance}
+
+\paragraph{Transaction Throughput}
+
+The transaction per second of the system as a whole will be:
+%
+\begin{center}
+\begin{tabular}{lr}
+Threshold &  8 tps  \\
+Target    & 16 tps  \\
+Stretch   & 50 tps  \\
+\end{tabular}
+\end{center}
+
+This assumes that the slot time remains 20 seconds.
+
+\paragraph{Transaction Latency}
+
+As a user I want my transaction to be submitted to the blockchain and received
+by the target user within the following time period:
+%
+\begin{center}
+\begin{tabular}{lr}
+Threshold & 100 seconds \\
+Target    & 60 seconds  \\
+Stretch   & 30 seconds  \\
+\end{tabular}
+\end{center}
+%
+The above time-frames will be achieved for $>95\%$ of all transactions.
+
+\paragraph{Network Bearer Resource Use -- end user control}
+
+As a user operating on the network as a home user not behind a firewall, I
+would like a cap on the total amount of network capacity in terms of short-term
+bandwidth that other network users can request from my connection so I am
+assured my network resource is not eaten up by the data diffusion function.
+
+\begin{itemize}
+\item The cap should be based on a fraction of a typical home internet
+      connection -- it can be changed by configuration including ``don't act
+      as a super node''.
+\item The system will allow users synching with the latest version of the
+      blockchain to download blocks from more then one and up to five network
+      peers concurrently.
+\item A cap on number of incoming subscribers.
+\item A cap on number of outbound requests for block syncing from other users.
+\item The cap will not be imposed on core nodes running on a server.
+\item If these resources are available, a reasonable connection speed should be
+      available to users requesting to sync the latest version of the
+      blockchain e.g. downloading blocks from 5 peers concurrently to aggregate
+      the bandwidth.
+\item (nice to have) the actual number and capacity being used is available to
+      user.
+\end{itemize}
+
+\paragraph{Participant performance measurement}
+
+There may be a requirement for measuring if a large stakeholder is not meeting
+their network obligation.
+
+It is accepted that this requirement is a ``nice to have'', and it has not been
+established that it is possible, nor has it been incorporated into the
+incentives mechanism.
+
+\subsubsection{Distributed System Resilience and Security}
+
+\paragraph{Resilience to abuse}
+
+As a user I should not be able to attack the system using an asymmetric denial
+of service attack that will deplete network resources from other users.
+
+\begin{itemize}
+\item The system should achieve its connectivity and performance requirements
+      even in the presence of a non-trivial proportion of bad actors on the
+      network.
+\item There is an assumption that there are not a large numbers of bad actors
+      in the network.
+\item The previous assumption does not follow from the assumptions of Ouroboros
+      which states that the users that control 50\% of the stake are
+      non-adversarial.
+\end{itemize}
+
+
+\paragraph{DDoS protection}
+
+As a large stakeholder running a core node on a server, I should still be able
+to communicate with other user in this segment, even if the system comes under
+a DDoS attack.
+
+\begin{itemize}
+\item Users in this segment will be able to generate and broadcast blocks to
+      each other within the usual timing constraints in this situation.
+\end{itemize}
+
+IP addresses will be hidden
+
+\begin{itemize}
+\item Encrypted IP addresses will be published by 10 of the other members of
+      the group of large stakeholder core nodes.
+\end{itemize}
+
+Assumption
+
+\begin{itemize}
+\item Core node operators will not publish their IP addresses publicly.
+\item Encrypted IP addresses will be published by the 10 of the other members
+      of the group of large stakeholder core nodes.
+\item If a node operators IP address is compromised the operator will respond
+      and change the IP address of their node.
+\item The system will allow operators to change the address of their core nodes
+      and communicate with that new IP address within a reasonable period of
+      time.
+\end{itemize}
+
+
+\subsubsection{Network decentralization}
+
+\paragraph{No hegemony}
+
+As a user I want to be assured that IOHK and its business partners are not in
+an especially privileged position in terms of trust, responsibility and
+necessity to the network so that network hegemony is avoided.
+
+\begin{itemize}
+\item IOHK should be in the same position on the network as any other
+      stakeholder with an equivalent amount of stake.
+\item There is more general requirement that no other actor could do this
+      either.
+\end{itemize}
+
 \section{Context and Introduction}
 
 How this work relates (in general terms) to the rest of the Shelly
@@ -195,7 +499,8 @@ stakepools (notion of Core DIF); association explain need for
 
 \section{Performance Requirements and User Stories}
 \subsection{Classes of Participants}
-todo: make a nice table
+\wip{todo: make a nice table}
+
 \subsubsection{Stake pool} % lookup what this is called in the protocols.tex
 \subsubsection{Small stakeholder}
 \subsubsection{User who has delegated}
@@ -235,13 +540,15 @@ use different sets of protocols for both uses cases.
 Throughout the document it will be clear which variant of we are referring to.
 
 \section{Threat Model}
-Todo: find out what a threat model is and whether it should be part of this document.
+\wip{
+  WIP discussion of the threat model
 \subsection{Resource Consumption Attacks}
-
+}
 
 \section{Ouroboros}
-
+\wip{
 How PoS is different from PoW in its network requirements:
+}
 
 \begin{itemize}
   \item No capability to sustain an undetected Eclipse attack
@@ -249,6 +556,7 @@ How PoS is different from PoW in its network requirements:
 \end{itemize}
 
 \section{Delegation}
+
 
 \chapter{System Architecture}
 \section{Overview}
@@ -267,15 +575,21 @@ This is also the reason why the network component in Shelly cannot be replaced
 with an of-the-shelf peer-to-peer protocol.
 
 \section{Design Choices}
+\wip{
 \begin{itemize}
 \item Only the design choices that have been taken.
-\item Design discussions in the discussions section.
+\item In this section only the big design choices.
+\item Design discussions and details in the discussions section.
 \end{itemize}
+}
+
 \section{Nodes}
 \subsection{Node Components}
 
 \chapter{Infrastructure}
-Specific assumptions about the infrastructure that are relevant for the discussion.
+\wip{
+  WIP: Specific assumptions about the infrastructure that are relevant for the discussion.
+}
 
 \section{Internet}
 \section{Network Topology}
@@ -285,6 +599,7 @@ Specific assumptions about the infrastructure that are relevant for the discussi
 \section{Operating Systems}
 \section{Firewall}
 \section{Nodes and Hosting}
+
 
 \chapter{Protocols}
 \section{Protocols as State-machines}
@@ -310,8 +625,8 @@ following pieces of information:
 \item States of the state-machine
 \item The messages that are exchanged
 \item A transition graph of the global view of the state machine.
-\item A transition graph of the client view.
-\item A transition graph of the server view.
+\item The client implementation of the protocol.
+\item The server implementation of the protocol.
 \end{itemize}
 
 \begin{description}
@@ -343,45 +658,62 @@ following pieces of information:
   State-machine frame work requires that messages can be serialized,
   transferred over the network and de-serialized by the receiver.
   The binary format for messages is described in Section~\ref{CBOR-section}.
+
 \item[Transitions]
   This part of the document describes the transitions of the abstract state of the protocol
   as the result of messages passed between client and the server.
   In sync with abstract state the client and the server update the local data
   to compute the actual "outcome" of a protocol-run, for example "update the
   blockchain".
-  Parts of the local updates are specific to the implementation language and the underlying
-  data structures, but they are also relevant for the protocol (to determine the next transition).
+  \wip{WIP: there are also hard contraints on the transitions, e.g. transaction is valid,etc}
+
+\item[Client and server implementation]
+  The state machine describes which messages are send and received and in which order.
+  This is the external view of the protocol that every compatible implementation MUST follow.
+  In addition to the external view of the protocol, this part of the specification also describes
+  how the client and server actually process the transmitted messages,
+  i.e., how the client and server update their internal state upon the transmission of messages.
+
+  This part gives a high level mathematical description, that is useful for understanding the design
+  of the protocol itself,
+  but does not restrict a concrete implementation of the protocol to specific data structures
+  or implementation techniques.
+  \wip{
+    Operational semantic/ inference rule -style formalism? <- not good,
+    but there are even more side-effects !
+    there are many mini protocols running in parallell and many layers of abstraction
+    imperative update-style !
+  }
+
 \end{description}
 
 \section{Single Phase Chain Synchronization Protocol}
+\hsref{ouroboros-network/src/Ouroboros/Network/Protocol/ChainSync/Type.hs}
 \subsection{Description}
+The chain synchronization protocol is used by the blockchain consumer
+to replicate the producer's blockchain locally. As it is polymorphic in blocks,
+it supports a family of Ouroboros protocols.
+The chain synchronization protocol is used by clients which synchronize just headers (node-to-node),
+and also clients which synchronize actual the blockchain (e.g., node-to-wallet).
+(See Figure~\ref{node-diagram-chains-state}.)
+
+\begin{figure}[h]
+  \pgfdeclareimage[height=6cm]{node-diagram-chains-state}{node-diagram-chains-state.pdf}
+  \begin{center}
+    \pgfuseimage{node-diagram-chains-state}
+  \end{center}
+  \caption{}
+  \label{node-diagram-chains-state}
+\end{figure}
+
+\hide{
 \begin{description}
-\item[Purpose of the protocol]
-
-The Chain Synchronization Protocol is used by the blockchain consumer
-to replicate the producer's blockchain locally.  It is polymorphic in blocks
-as it is designed to support family of Ouroboros protocols, but
-also for some clients it will synchronize just headers (node-to-node), for
-others it can be used to synchronize actual blockchain (e.g., node-to-wallet).
-
 \item[Who is communicating]
   A node communicates with several upstream and downstream nodes.
   The node runs independent agents for every other node
   it communicates with, whether it acts as an upstream or a downstream peer.
-  (See Figure~\ref{node-diagram-chains-state}.)
-  \begin{figure}
-  \pgfdeclareimage[height=6cm]{node-diagram-chains-state}{node-diagram-chains-state.pdf}
-  \begin{center}
-  \pgfuseimage{node-diagram-chains-state}
-  \end{center}
-  \caption{}
-  \label{node-diagram-chains-state}
-  \end{figure}
-
-\item[Where is located in the protocol stack?]
-\item[What are the interfaces to the lower layers of the stack?]
-  The chain synchronization protocol can send and receive messages. (via a point to point channel.)
 \end{description}
+}
 
 \subsection{State machine}
 \begin{figure}[H]
@@ -394,9 +726,48 @@ others it can be used to synchronize actual blockchain (e.g., node-to-wallet).
   MustReply  & server \\ \hline
   Intersect  & server \\ \hline
   Done       &        \\ \hline
-  \hline
 \end{tabular}
 \end{figure}
+
+\begin{description}
+\item[RequestNext]
+  Request the next update from the producer.
+  The response can be a roll forward, a roll back or wait.
+
+\item[AwaitReply]
+  Acknowledge the request but require the consumer to wait for the next update.
+  This means that the consumer is synced with the producer, and
+  the producer is waiting for its own chain state to change.
+
+\item[RollForward]
+  Tell the consumer to extend their chain with the given header.
+  The message also tells the consumer about the head point of the producer.
+
+\item[RollBackward]
+  Tell the consumer to roll back to a given point on their chain.
+  The message also tells the consumer about the head point of the producer.
+
+\item[FindIntersect]
+  Ask the producer to try to find an improved intersection point between
+  the consumer and producer's chains.
+  The consumer sends a sequence of points and it is up to the producer
+  to find the first intersection point on its chain and send it back to the consumer.
+
+\item[IntersectImproved]
+  The reply to the consumer about an intersection found, but /only/ if this
+  is an improvement over previously established intersection point.
+  The consumer can decide weather to send more points.
+  The message also tells the consumer about the head point of the producer.
+
+\item[IntersectUnchanged]
+  The reply to the consumer that no intersection was found: none of the
+  points the consumer supplied are on the producer chain.
+  The message also tells the consumer about the head point of the producer.
+
+\item[Done]
+  Terminating messages.
+
+\end{description}
 
 \begin{figure}[H]
 \begin{tabular}{|l|l|l|l|}
@@ -459,11 +830,16 @@ but the corresponding message is send from the server to the client.
 \end{tikzpicture}
 \end{figure}
 
-\section{Transaction Synchronization Protocol}
+\section{Request Response Protocol}
+\label{request-response-protocol}
 \subsection{Description}
+The request response protocol is polymorphic in the request and response data that is been transmitted.
+This means there different possibe applications of this protocol and the
+application of the protocol determins the type of the requests and responses.
+
 \begin{description}
 \item[Purpose of the protocol]
-  Nodes use the transaction synchronization protocol to forward transactions that have been
+  Nodes use the request response protocol to forward transactions that have been
   submitted to the network.
 \end{description}
 
@@ -529,18 +905,59 @@ Block fetching consists of two protocols: submission of block ranges 'BlockFetch
   send the requiered blocks.
 \end{description}
 
-\section{Multiplexing multiple Mini Protocols}
-\section{Abstract and concrete representation}
-\label{CBOR-section}
+\section{DeltaQ Mini Protocol}
+\wip{
+  WIP : Explain DeltaQ measurement backpressure and how we deal with slow connection.
+  also See Section \ref{deltaq-discussion}.
+The DeltaQ mini protocol does not transmit is own messages.
+Instead it relies on the time stamps that the mutiplexing layer (Section~\ref{multiplexing}) adds
+to the messages of other mini protocols.
+}
+
+
+\section{Running many Instances of a Mini Protocol in parallel}
+\wip{WIP Pipelining}
+
+\section{Multiplexing multiple Mini Protocols over one Channel}
+\label{multiplexing}
+The multiplexing protocol is used to run several mini protocols in parallel over a single
+channel.
+The implementation of the mini protocol performs the following tasks:
 \begin{itemize}
-  \item IER - Information Exchange Requirement
-  \item CBOR - https://tools.ietf.org/html/rfc7049
+\item
+  It queues outgoing messages from the mini protocols.
+\item
+  It selects a message for transmission, wraps the message in a multiplexing frame
+  and transmits forwards the frame.
+\item
+  It receives frames from the channel unpacks the frames and dispatches
+  the messages to the mini protocols
+\item
+  It collects the DeltaQ measurements for the DeltaQ Mini Protocol.
+\item
+  It initializes and terminates channels.
+\item
+  When a mini protocol detects that the peer violates the protocol, it takes appropriate action,
+  i.e. shutdown or abort the channel.
 \end{itemize}
 
-\begin{itemize}
-  \item CBOR as the concrete representation for the information exchanges
-  \item Haskell to CBOR 
-\end{itemize}
+\subsection{Multiplexing Frames}
+The multiplexing frame adds two 32-bit words to the payload.
+
+\begingroup
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|}
+  \hline
+  0&1&2&3&4&5&6&7&8&9&0&1&2&3&4&5&6&7&8&9&0&1&2&3&4&5&6&7&8&9&0&1 \\ \hline
+  \multicolumn{32}{|c|}{transmission time} \\ \hline
+  \multicolumn{1}{|c|}{M}
+  &\multicolumn{15}{|c|}{mini protocol ID}
+  &\multicolumn{16}{|c|}{length} \\ \hline
+  \multicolumn{32}{|c|}{} \\
+  \multicolumn{32}{|c|}{payload} \\
+  \multicolumn{32}{|c|}{} \\ \hline
+\end{tabular}
+\endgroup
 
 \chapter{Haskell}
 While the network protocol itself can be implemented in many programming languages,
@@ -564,9 +981,12 @@ For understanding the protocol, it is save to skip this section.
 \label{Haskell-state-machine}
 
 \chapter{Discussion}
-Alternative view: Exploratory work.
-The real work goes here
-The Why is at least as important as the What.
+\section{Related Work}
+\subsection{Other Crypto Currencies}
+\subsubsection{PoW Systems}
+\subsubsection{PoS Systems}
+\subsection{Generic Peer to Peer Systems}
+\wip{WIP: Poldercast,etc}
 \section{Overview}
 \section{Design Discussion}
 \subsubsection{Why distinguish between node to node and node-to-consumer IPC}
@@ -654,10 +1074,15 @@ make use of a trusted node.
 
 \section{Requirements}
 \section{Threat Vectors}
-\subsubsection{Asymptotic Resource consumption}
+\subsubsection{Asymptotic Resource Consumption}
 \section{Results from Simulations}
 \section{Pub Sub}
 \section{Of the Shelf Protocols}
+\section{Congestion Control}
+\subsection{DeltaQ and Backpressure}
+\label{deltaq-discussion}
+\wip{WIP: discuss DeltaQ and Backpressure}
+
 \section{Meta Requirements}
 \subparagraph{Work in Progress}
 This document is evolved in parallel with the work on the protocol design and
@@ -687,30 +1112,34 @@ the reference implementation
 \end{itemize}
 \subparagraph{Workflow}
 
-\bibliographystyle{apalike}
-\bibliography{references}
-
 \appendix
 \section{CDDL Specification of the Protocol Messages}
 \label{included-cddl}
+\label{CBOR-section}
 This Sections contains the CDDL\cite{cddl} specification
-of the binary serialisation format of the network protocol messages.
+of the binary serialization format of the network protocol messages.
 
 To keep this Section in close sync with the actual Haskell implementation
 the names of the Haskell identifiers have been reused for the corresponding
 CBOR types (with the first letter converted to lower case).
-Note, that, for readablitiy, the previous Sections used simplified message identifiers,
-for example \tt{RequestNext} instead of \tt{msgRequestNext}, etc.
-Both identifiers refere to the same message format.
+Note, that, for readability, the previous Sections used simplified message identifiers,
+for example {\tt RequestNext} instead of {\tt msgRequestNext}, etc.
+Both identifiers refer to the same message format.
 
 All transmitted messages satisfy the shown CDDL specification.
 However, CDDL, by design, also permits variants in the encoding that are not valid in the protocol.
-In particular, the notation $\tt{[} ... \tt{]}$ in CDDL can be used for both fixed-length  
+In particular, the notation ${\tt [} ... {\tt ]}$ in CDDL can be used for both fixed-length  
 and variable-length CBOR-list, while only either of the two encodings is valid in the protocol.
 We add comments in specification to make clear which encoding must be used.
-%%\lstinputlisting{messages.cddl}
 
-\end{appendices}
+Note that, in the case of the request response mini protocol (Section~ref{request-response-protocol})
+there in only ever one possible kind of message in each state.
+This means that there is no need to tag messages at all and protocol can directly transmit the plain
+request and response data.
+
+\lstinputlisting{messages.cddl}
+\bibliographystyle{apalike}
+\bibliography{references}
 
 \section{Nomenclature}
 \begin{description}
@@ -721,10 +1150,5 @@ We add comments in specification to make clear which encoding must be used.
 \item[Core DIF] The set of end points that belong to the (major)
   stakepools; (the term DIF taken from RINA\ref{RINA} where it denotes
   a (potentially closed) set of potential participants.
-  
-
 \end{description}
-
 \end{document}
-
-concreate cbor syntax
