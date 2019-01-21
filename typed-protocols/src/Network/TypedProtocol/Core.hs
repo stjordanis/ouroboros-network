@@ -1,8 +1,11 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors #-}
 
@@ -54,7 +57,9 @@ module Network.TypedProtocol.Core (
 
   -- * Internals
   Agency(..),
+  SAgency (..),
   CurrentAgency,
+  FlipAgency,
   
   -- TODO: move
   runPeer,
@@ -62,6 +67,7 @@ module Network.TypedProtocol.Core (
   SomeMessage(..),
   ) where
 
+import Data.Void (Void, absurd)
 import Data.Kind (Type)
 
 
@@ -159,7 +165,6 @@ class Protocol ps where
   --
   data StateToken :: ps -> Type
 
-
 -- | Having defined the types needed for a protocol it is then possible to
 -- define programs that are peers that engage in that protocol.
 --
@@ -169,23 +174,41 @@ data Peer (pk :: PeerKind) (st :: ps) m a where
          ->    Peer pk st m a
 
   Done   :: (CurrentAgency pk (AgencyInState st) ~ Finished)
-         => a
+         => SAgency Finished
+         -> a
          -> Peer pk st m a
 
   Yield  :: (CurrentAgency pk (AgencyInState st) ~ Yielding)
-         => Message st st'
+         => SAgency Yielding
+         -> Message st st'
          -> Peer pk st' m a
          -> Peer pk st  m a
 
   Await  :: (CurrentAgency pk (AgencyInState st) ~ Awaiting)
-         => StateToken st
+         => SAgency Awaiting
+         -> StateToken st
          -> (forall st'. Message st st' -> Peer pk st' m a)
          -> Peer pk st m a
 
 data Agency   = Yielding | Awaiting | Finished -- Only used as promoted types
+data SAgency (a :: Agency) where
+  SYielding :: SAgency Yielding
+  SAwaiting :: SAgency Awaiting
+  SFinished :: SAgency Finished
 data PeerKind = AsClient | AsServer        -- Only used as promoted types
-
 data WhoHasAgency = ClientHasAgency | ServerHasAgency | NobodyHasAgency
+
+type Or = Either
+type Not t = t -> Void
+
+type family FlipAgency (peer :: PeerKind) (agency :: Agency) :: Agency where
+  FlipAgency AsClient Yielding = Yielding
+  FlipAgency AsClient Awaiting = Awaiting
+  FlipAgency AsClient Finished = Finished
+
+  FlipAgency AsServer Yielding = Awaiting
+  FlipAgency AsServer Awaiting = Yielding
+  FlipAgency AsServer Finished = Finished
 
 type family CurrentAgency (peer :: PeerKind) (agency :: WhoHasAgency) :: Agency where
   CurrentAgency AsClient ClientHasAgency = Yielding
@@ -202,20 +225,31 @@ effect = Effect
 
 done :: (CurrentAgency pk (AgencyInState st) ~ Finished)
      => a -> Peer pk st m a
-done = Done
+done = Done SFinished
 
 yield :: (CurrentAgency pk (AgencyInState st) ~ Yielding)
       => Message st st'
       -> Peer pk st' m a
       -> Peer pk st  m a
-yield = Yield
+yield = Yield SYielding
 
 await :: (CurrentAgency pk (AgencyInState st) ~ Awaiting)
       => StateToken st
       -> (forall st'. Message st st' -> Peer pk st' m a)
       -> Peer pk st m a
-await = Await
+await = Await SAwaiting
 
+-- | Proofs that the `Peer` type cannot deadlock or partially finish the
+-- protocol.  They help to make `connect` a total function.
+--
+data ImpossibleProofs = ImpossibleProofs {
+    -- | A proof that both agents are not yielding at the same time.
+    noYieldingDeadlock :: SAgency Yielding -> SAgency Yielding -> Void,
+    -- | A proof that both agents are not awaiting at the same time.
+    noAwaitingDeadlock :: SAgency Awaiting -> SAgency Awaiting -> Void,
+    -- | A proof that both agents finished at the same transition.
+    notPartiallyFinished :: SAgency Finished -> Not (SAgency Yielding `Or` SAgency Awaiting)
+  }
 
 -- | The 'connect' function takes two peers that agree on a protocol and runs
 -- them in lock step, until (and if) they complete.
@@ -232,21 +266,28 @@ await = Await
 -- minimalistic setting. The typed framework guarantees
 --
 connect :: Monad m
-        => Peer AsClient st m a
+        => ImpossibleProofs
+        -> Peer AsClient st m a
         -> Peer AsServer st m b
         -> m (a, b)
-connect (Effect a) b  = a >>= \a' -> connect a' b
-connect a  (Effect b) = b >>= \b' -> connect a  b'
-connect (Done a) (Done b) = return (a, b)
-connect (Yield msg a) (Await _ b) = connect a (b msg)
-connect (Await _ a) (Yield msg b) = connect (a msg) b
---connect (Done _) (Yield _ _) = 
+connect p (Effect a) b  = a >>= \a' -> connect p a' b
+connect p a  (Effect b) = b >>= \b' -> connect p a  b'
+connect _part (Done _ a) (Done _ b) = return (a, b)
+connect p (Yield _ msg a) (Await _ _ b) = connect p a (b msg)
+connect p (Await _ _ a) (Yield _ msg b) = connect p (a msg) b
+
+connect ImpossibleProofs{notPartiallyFinished} (Done sd _) (Yield sy _ _) = absurd $ notPartiallyFinished sd (Left sy)
+connect ImpossibleProofs{notPartiallyFinished} (Yield sy _ _) (Done sd _) = absurd $ notPartiallyFinished sd (Left sy)
+connect ImpossibleProofs{notPartiallyFinished} (Done sd _) (Await sa _ _) = absurd $ notPartiallyFinished sd (Right sa)
+connect ImpossibleProofs{notPartiallyFinished} (Await sa _ _) (Done sd _) = absurd $ notPartiallyFinished sd (Right sa)
+connect ImpossibleProofs{noYieldingDeadlock} (Yield sy _ _) (Yield sy' _ _) = absurd $ noYieldingDeadlock sy sy'
+connect ImpossibleProofs{noAwaitingDeadlock} (Await sa _ _) (Await sa' _ _) = absurd $ noAwaitingDeadlock sa sa'
 
 runPeer :: Monad m => Peer pk st m a -> m a
 runPeer (Effect k)    = k >>= runPeer
-runPeer (Done x)      = return x
-runPeer (Yield _m k)  = runPeer k
-runPeer (Await _ k)   = runPeer (k msg) where msg = undefined
+runPeer (Done _ x)      = return x
+runPeer (Yield _ _m k)  = runPeer k
+runPeer (Await _ _ k)   = runPeer (k msg) where msg = undefined
 
 data SomeMessage st where
      SomeMessage :: Message st st' -> SomeMessage st
@@ -267,11 +308,10 @@ runPeerWithCodec
 -- transitioning to.
 
 runPeerWithCodec decode msgs (Effect k)     = k >>= runPeerWithCodec decode msgs
-runPeerWithCodec _      _    (Done x)       = return (Just x)
-runPeerWithCodec decode msgs (Yield _msg k) = runPeerWithCodec decode msgs k
-runPeerWithCodec decode (msg:msgs) (Await tok   k) =
+runPeerWithCodec _      _    (Done _ x)       = return (Just x)
+runPeerWithCodec decode msgs (Yield _ _msg k) = runPeerWithCodec decode msgs k
+runPeerWithCodec decode (msg:msgs) (Await _ tok   k) =
     case decode tok msg of
       Just (SomeMessage tr) -> runPeerWithCodec decode msgs (k tr)
       Nothing               -> return Nothing
-runPeerWithCodec _ [] (Await _ _) = return Nothing
-
+runPeerWithCodec _ [] (Await _ _ _) = return Nothing

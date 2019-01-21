@@ -14,11 +14,11 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:   Network.TypedProtocol.Core
-                   , Network.TypedProtocol.Pipelined
-                   , Network.TypedProtocol.PingPong.Type
-                   , Network.TypedProtocol.PingPong.Client
-                   , Network.TypedProtocol.PingPong.Server
-                   , Network.TypedProtocol.PingPong.Direct
+--                 , Network.TypedProtocol.Pipelined
+--                 , Network.TypedProtocol.PingPong.Type
+--                 , Network.TypedProtocol.PingPong.Client
+--                 , Network.TypedProtocol.PingPong.Server
+--                 , Network.TypedProtocol.PingPong.Direct
 --                 , Network.TypedProtocol.Channel
 --                 , Network.TypedProtocol.Codec
   other-extensions:  GADTs
