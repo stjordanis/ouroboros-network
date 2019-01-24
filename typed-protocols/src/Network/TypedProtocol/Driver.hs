@@ -98,8 +98,8 @@ runPeer codec@Codec{encode} Channel{send} (Core.Yield tok msg k) = do
     channel' <- send (encode tok msg)
     runPeer codec channel' k
 
-runPeer codec@Codec{decode} channel (Core.Await stok k) = do
-    decoder <- decode stok
+runPeer codec@Codec{decode} channel (Core.Await tok k) = do
+    decoder <- decode tok
     res <- runDecoder channel decoder
     case res of
       Right (SomeMessage msg, channel') -> runPeer codec channel' (k msg)
@@ -191,8 +191,8 @@ runPipelinedPeerReceiver Codec{decode} = go
 
     go channel Pipelined.Completed = return channel
 
-    go channel (Pipelined.Await stok k) = do
-      decoder <- decode stok
+    go channel (Pipelined.Await tok k) = do
+      decoder <- decode tok
       res <- runDecoder channel decoder
       case res of
         Right (SomeMessage msg, channel') -> go channel' (k msg)

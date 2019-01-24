@@ -8,7 +8,13 @@
 
 module Network.TypedProtocol.Codec where
 
-import           Network.TypedProtocol.Core (CurrentToken, FlipPeer, Message, PeerKind)
+import           Network.TypedProtocol.Core
+  ( CurrentToken
+  , TerminalToken
+  , FlipPeer
+  , Message
+  , PeerKind
+  )
 
 import           Control.Monad.ST (ST)
 import           Control.Monad.Class.MonadST

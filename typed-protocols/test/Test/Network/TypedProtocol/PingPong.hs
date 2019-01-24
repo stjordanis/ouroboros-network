@@ -30,13 +30,17 @@ import           Network.TypedProtocol.Channel
 import           Network.TypedProtocol.Driver (connect, runPeer)
 import qualified Network.TypedProtocol.Pipelined as Pipelined
 
+import           Network.TypedProtocol.PingPong.Type (impossibleProofs)
 import           Network.TypedProtocol.PingPong.Client
   ( pingPongClientCount
   , pingPongClientPeer
   , pingPongSenderCount
   , pingPongClientPeerSender
   )
-import           Network.TypedProtocol.PingPong.Codec (pingPongCodec)
+import           Network.TypedProtocol.PingPong.Codec
+  ( pingPongClientCodec
+  , pingPongServerCodec
+  )
 import           Network.TypedProtocol.PingPong.Server
   ( pingPongServerCount
   , pingPongServerPeer
@@ -84,11 +88,7 @@ prop_connect
   -> Property
 prop_connect (Positive x) =
   let c = fromIntegral x
-<<<<<<< HEAD
-  in case runIdentity $ connect (pingPongClientPeer $ pingPongClientCount c) (pingPongServerPeer pingPongServerCount) of
-=======
-  in case runIdentity $ connect undefined (pingPongClientPeer $ pingPongClientFixed c) (pingPongServerPeer pingPongServerCount) of
->>>>>>> d476b72... Make connect a total function
+  in case runIdentity $ connect impossibleProofs (pingPongClientPeer $ pingPongClientCount c) (pingPongServerPeer pingPongServerCount) of
     (_, c') -> c === c'
 
 connect_pipelined_experiment
@@ -135,12 +135,13 @@ channel_experiment clientChannel serverChannel (Positive x) probe = do
   let c = fromIntegral x
       clientPeer = pingPongClientPeer $ pingPongClientCount c
       serverPeer = pingPongServerPeer pingPongServerCount
-      codec = transformCodec BSC.pack BSC.unpack pingPongCodec
+      clientCodec = transformCodec BSC.pack BSC.unpack pingPongClientCodec
+      serverCodec = transformCodec BSC.pack BSC.unpack pingPongServerCodec
 
   fork $ do
-    res <- runPeer codec serverChannel serverPeer
+    res <- runPeer serverCodec serverChannel serverPeer
     atomically $ putTMVar serverVar res
-  fork $ runPeer codec clientChannel clientPeer
+  fork $ runPeer clientCodec clientChannel clientPeer
 
   res <- atomically $ takeTMVar serverVar
   probeOutput probe (res === c)
