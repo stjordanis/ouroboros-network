@@ -5,6 +5,7 @@
 {-# LANGUAGE GADTSyntax                 #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE TypeInType                 #-}
 
 module Network.TypedProtocol.Codec where
 

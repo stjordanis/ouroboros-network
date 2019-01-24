@@ -5,6 +5,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE TypeInType #-}
 
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors #-}
 
