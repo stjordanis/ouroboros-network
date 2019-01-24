@@ -165,12 +165,12 @@ runPipelinedPeerSender queue Codec{encode} = go
        -> m a
     go  channel (Pipelined.Effect k) = k >>= go channel
 
-    go _channel (Pipelined.Done   x) = return x
+    go _channel (Pipelined.Done _ x) = return x
 
-    go Channel{send} (Pipelined.Yield msg receiver k) = do
+    go Channel{send} (Pipelined.Yield tok msg receiver k) = do
       atomically (writeTBQueue queue (ReceiveHandler receiver))
       -- TODO: the token will come from `Piplined.Yield` constructor
-      channel' <- send (encode undefined msg)
+      channel' <- send (encode tok msg)
       go channel' k
 
 

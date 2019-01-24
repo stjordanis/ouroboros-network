@@ -128,12 +128,13 @@ pingPongClientPeerSender
 
 pingPongClientPeerSender (SendMsgDonePipelined result) =
   -- Send `MsgDone` and complete the protocol
-  Pipelined.complete MsgDone result
+  Pipelined.complete ClientTokenIdle TerminalTokenDone MsgDone result
 
 pingPongClientPeerSender (SendMsgPingPipelined receive next) =
   -- Piplined yield: send `MsgPing`, imediatelly follow with the next step.
   -- Await for a response in a continuation.
   Pipelined.yield
+    ClientTokenIdle
     MsgPing
     -- response handler
     (Pipelined.await ServerTokenBusy $ \MsgPong -> Pipelined.effect' $ receive $> Pipelined.Completed)

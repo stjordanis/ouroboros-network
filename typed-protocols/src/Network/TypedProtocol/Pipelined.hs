@@ -4,6 +4,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors #-}
 
@@ -44,7 +45,17 @@
 --
 module Network.TypedProtocol.Pipelined where
 
-import           Network.TypedProtocol.Core (Agency (..), CurrentAgency, CurrentToken, FlipPeer, Protocol (..), PeerKind)
+import           Data.Void (absurd)
+
+import           Network.TypedProtocol.Core
+  ( Agency (..)
+  , CurrentAgency
+  , CurrentToken
+  , FlipPeer
+  , Protocol (..)
+  , PeerKind
+  , ImpossibleProofs (..)
+  )
 import qualified Network.TypedProtocol.Core as Core
 
 
@@ -55,11 +66,13 @@ data PeerSender (pk :: PeerKind) (st :: ps) m a where
          ->    PeerSender pk st m a
 
   Done   :: (CurrentAgency pk (AgencyInState st) ~ Finished)
-         => a
+         => TerminalToken st
+         -> a
          -> PeerSender pk st m a
 
   Yield  :: (CurrentAgency pk (AgencyInState st) ~ Yielding)
-         => Message st st'
+         => CurrentToken pk st
+         -> Message st st'
          -> PeerReceiver pk (st'  :: ps) (st'' :: ps) m
          -> PeerSender   pk (st'' :: ps) m a
          -> PeerSender   pk (st   :: ps) m a
@@ -71,13 +84,15 @@ effect = Effect
 
 done
   :: (CurrentAgency pk (AgencyInState st) ~ Finished)
-  => a
+  => TerminalToken st
+  -> a
   -> PeerSender pk st m a
 done = Done
 
 yield
   :: (CurrentAgency pk (AgencyInState st) ~ Yielding)
-  => Message st st'
+  => CurrentToken pk st
+  -> Message st st'
   -> PeerReceiver pk (st'  :: ps) (st'' :: ps) m
   -> PeerSender   pk (st'' :: ps) m a
   -> PeerSender   pk (st   :: ps) m a
@@ -87,10 +102,12 @@ complete
   :: ( CurrentAgency pk (AgencyInState st) ~ Yielding
      , CurrentAgency pk (AgencyInState st') ~ Finished
      )
-  => Message st st'
+  => CurrentToken pk st
+  -> TerminalToken st'
+  -> Message st st'
   -> a
   -> PeerSender   pk (st  :: ps) m a
-complete msg a = yield msg Completed (done a)
+complete tok tok' msg a = yield tok msg Completed (done tok' a)
 
 data PeerReceiver (pk :: PeerKind) (st :: ps) (st' :: ps) m where
 
@@ -117,25 +134,36 @@ await
 await = Await
 
 -- |
--- Like `Network.Protocol.Core.connect`, it is also a partial function.
+-- Like `Network.Protocol.Core.connect` but for pipelined sender.
+-- Note that this function sequencialises the pipelining and runs it in
+-- a single thread.
 --
 connect
-  :: forall pk st m a b. Monad m
-  => PeerSender pk st m a
+  :: forall (st :: ps) m a b. Monad m
+  => ImpossibleProofs ps
+  -> PeerSender Core.AsClient st m a
   -> Core.Peer Core.AsServer st m b
   -> m (a, b)
-connect (Effect a) b = a >>= \a' -> connect a' b
-connect a (Core.Effect b) = b >>= \b' -> connect a b'
-connect (Done a) (Core.Done _ b) = return (a, b)
-connect (Yield msg receiver a) (Core.Await _ b) = connectReceiver receiver (b msg) >>= \b' -> connect a b'
+connect p (Effect a) b = a >>= \a' -> connect p a' b
+connect p a (Core.Effect b) = b >>= \b' -> connect p a b'
+connect _ (Done _ a) (Core.Done _ b) = return (a, b)
+connect p (Yield _ msg receiver a) (Core.Await _ b) = do
+  b' <- connectReceiver receiver (b msg)
+  connect p a b'
  where
   connectReceiver
-    :: PeerReceiver pk st0 st1 m
+    :: PeerReceiver Core.AsClient st0 st1 m
     -> Core.Peer Core.AsServer st0 m b
     -> m (Core.Peer Core.AsServer st1 m b)
   connectReceiver (Effect' x) y = x >>= \x' -> connectReceiver x' y
   connectReceiver x (Core.Effect y) = y >>= \y' -> connectReceiver x y'
   connectReceiver Completed y = return y
   connectReceiver (Await _tok x) (Core.Yield _ msg_ y) = connectReceiver (x msg_) y
-  connectReceiver _ _ = error "Network.TypedProtocol.connectReceiver: impossible happend"
-connect _ _ = error "Network.TypedProtocol.connect: impossible happend"
+  -- forbidden cases
+  connectReceiver (Await sa _) (Core.Await sa' _) = absurd $ noAwaitingDeadlock p sa' sa
+  connectReceiver (Await sa _) (Core.Done sd _) = absurd $ notPartiallyFinished p sd (Right sa)
+-- forbidden cases
+connect ImpossibleProofs{notPartiallyFinished} (Done sd _) (Core.Yield sy _ _) =  absurd (notPartiallyFinished sd (Right sy))
+connect ImpossibleProofs{notPartiallyFinished} (Yield sy _ _ _) (Core.Done sd _) = absurd $ notPartiallyFinished sd (Left sy)
+connect ImpossibleProofs{notPartiallyFinished} (Done sd _) (Core.Await sa _) = absurd $ notPartiallyFinished sd (Left sa)
+connect ImpossibleProofs{noYieldingDeadlock} (Yield sy _ _ _) (Core.Yield sy' _ _) = absurd $ noYieldingDeadlock sy sy'

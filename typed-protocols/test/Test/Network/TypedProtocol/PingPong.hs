@@ -102,7 +102,7 @@ connect_pipelined_experiment (Positive x) probe = do
   var <- atomically $ newTVar 0
   let c = fromIntegral x
       client = pingPongSenderCount var c
-  (_, b) <- Pipelined.connect (pingPongClientPeerSender client) (pingPongServerPeer pingPongServerCount)
+  (_, b) <- Pipelined.connect impossibleProofs (pingPongClientPeerSender client) (pingPongServerPeer pingPongServerCount)
   res <- atomically $ readTVar var
   probeOutput probe (c === b)
   probeOutput probe (c === res)
