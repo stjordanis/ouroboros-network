@@ -1,0 +1,12 @@
+https://github.com/input-output-hk/iohk-monitoring-framework 09b269cd1926303902e8dea3c8703b6e588004f5 . 1jvisxi0vcvv2kaak8b1nwn54vr6j3bf5l2irh1vy8i5gbynlh6c iohk-monitoring .stack.nix/iohk-monitoring.nix
+https://github.com/input-output-hk/iohk-monitoring-framework c7393acce05b3edd9a2c880b1dc34e5ffb9b08fa . 1s91jlrr6qanrj3j8jhxr0z9a92d9irvb17ysfydm76z7xy0d3sn iohk-monitoring .stack.nix/iohk-monitoring.nix
+https://github.com/corsis/clock.git ef60bd51a3587a173adf565c33bf2886df6e3842 . 1r4n9imls483f7wd61fi1jk16z2k7w36gpx798sqidvwbnc831q1 clock .stack.nix/clock.nix
+https://github.com/input-output-hk/iohk-monitoring-framework 5d6d00690429d4e7b4b79184aa94e9fe6d4889d6 . 0z0zs79vjr8rc2jggb9hj4126dyrdc3j85j91ipr7h5v97np0m1p iohk-monitoring .stack.nix/iohk-monitoring.nix
+https://git.haskell.org/packages/transformers.git 80557845cdc0e72bc05cec19cf7a1bf5495e9e69 . 1lnqvghdmvcndax9lm8mg99s65qfvx1w72infx5930br60m82ir1 transformers .stack.nix/transformers.nix
+https://github.com/input-output-hk/iohk-monitoring-framework e53ea548a8d75de01e45d703a5c1afa6846d2daf . 15ilpp5z4sldxm194riakx7ggilqcm5ylghc8jlxkm5djqk8hlqv iohk-monitoring .stack.nix/iohk-monitoring.nix
+https://github.com/jbgi/pretty-show.git 4f4a953831e14a256b83cdea19177e748d74443a . 011wb5wchqhmwyypfkn2v41d729fbb3wcgm099z0325n9969xyi5 pretty-show .stack.nix/pretty-show.nix
+https://github.com/jbgi/pretty-show.git 8dc791eb55c901ac2100f73181a164a7c332363f . 0dsflaa7yl1kc6frfv4vwdhypb3bhj7wfc62ik7pxb8yqv3cn9cj pretty-show .stack.nix/pretty-show.nix
+https://github.com/jbgi/pretty-show.git f18a5a90564ae10806f65f935f9c32d185ebfa8b . 1m4q32zq33aqwdn613d97ijwkgigvawg4hlg3m555as0qbb5r98a pretty-show .stack.nix/pretty-show.nix
+https://github.com/jbgi/pretty-show.git b67814408d55dde0aba843adf54909a1fddc53c9 . 1yf90zy164da4hpzfyj78sl2r6w16hfxrfy9i04s9k1rr2vyn9xv pretty-show .stack.nix/pretty-show.nix
+https://github.com/jbgi/pretty-show.git 0df7a8b651c140894104d26bbd56b78c23f24c2a . 1kgi2yf9i5dqf84w1nz8q00n527isz7kvjlk1fybly6dzdcvfwv7 pretty-show .stack.nix/pretty-show.nix
+https://github.com/jbgi/pretty-show.git 8b317dc98e493609fb70b09580404a339c20dd0e . 0k1n9m76wcl8970hb4sxh1ak68nzn9mljwq31wy85vl93ffp36br pretty-show .stack.nix/pretty-show.nix

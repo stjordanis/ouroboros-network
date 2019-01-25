@@ -1,25 +1,37 @@
-﻿resolver: nightly-2018-11-15
+﻿resolver: lts-13.3
+compiler: ghc-8.4.4
 packages:
 - ouroboros-consensus/
 flags: {}
 extra-package-dbs: []
 allow-newer: true
-nix:
-    enable: false
 extra-deps:
 - typed-transitions/
 - ouroboros-network/
+- io-sim/
+- io-sim-classes/
 - cborg-0.2.1.0
 - ekg-0.4.0.15
 - ekg-core-0.1.1.6
 - ekg-json-0.1.0.6
 - fgl-5.7.0.1
-- graphviz-2999.20.0.2
+- graphviz-2999.20.0.3
 - io-streams-haproxy-1.0.0.2
+- katip-0.6.3.0
 - serialise-0.2.1.0
 - snap-core-1.0.3.2
 - snap-server-1.1.0.0
 - QuickCheck-2.12.6.1
+- quickcheck-state-machine-0.6.0
 - time-units-1.0.0
+- process-1.6.5.0
+- containers-0.5.11.0
+- network-2.6.3.6
 - git: https://github.com/input-output-hk/iohk-monitoring-framework
-  commit: 09b269cd1926303902e8dea3c8703b6e588004f5
+  commit: e53ea548a8d75de01e45d703a5c1afa6846d2daf
+- git: https://github.com/corsis/clock.git
+  commit: ef60bd51a3587a173adf565c33bf2886df6e3842
+- git: https://git.haskell.org/packages/transformers.git
+  commit: 80557845cdc0e72bc05cec19cf7a1bf5495e9e69
+nix:
+  packages: [zlib]
